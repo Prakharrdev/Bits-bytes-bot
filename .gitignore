@@ -3,3 +3,8 @@ node_modules/
 .DS_Store
 *.log
 bnb-bot-prd.md
+
+# Local Database
+data/
+*.db
+*.sqlite
