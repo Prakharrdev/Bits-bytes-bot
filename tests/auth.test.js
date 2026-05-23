@@ -28,6 +28,9 @@ describe('Auth Layer Tests', () => {
 				cache: {
 					has: jest.fn().mockReturnValue(false),
 				},
+				highest: {
+					position: 10,
+				},
 			},
 			permissions: {
 				has: jest.fn().mockReturnValue(false),
@@ -41,6 +44,7 @@ describe('Auth Layer Tests', () => {
 			roles: {
 				cache: {
 					get: jest.fn().mockReturnValue({ id: '1480620981587279993' }),
+					find: jest.fn().mockReturnValue({ id: 'fork_lead_role_id', name: 'fork-lead', position: 10 }),
 				},
 			},
 		};
@@ -136,6 +140,30 @@ describe('Auth Layer Tests', () => {
 
 			const result = await isAuthorizedForCity(mockUser, 'UnknownCity', mockGuild);
 			
+			expect(result).toBe(false);
+		});
+
+		test('should deny access if user has highest role position lower than fork-lead role position', async () => {
+			mockMember.roles.highest.position = 5; // lower than 10
+			
+			// Try to authorize a lead
+			notion.findForkByCity.mockResolvedValue({
+				id: 'fork_delhi',
+				properties: {
+					'Discord ID': {
+						rich_text: [{ text: { content: 'user_123' } }],
+					},
+				},
+			});
+
+			const result = await isAuthorizedForCity(mockUser, 'Delhi', mockGuild);
+			expect(result).toBe(false);
+		});
+
+		test('should deny access if fork-lead role is missing from guild', async () => {
+			mockGuild.roles.cache.find.mockReturnValue(null);
+
+			const result = await isAuthorizedForCity(mockUser, 'Delhi', mockGuild);
 			expect(result).toBe(false);
 		});
 	});
