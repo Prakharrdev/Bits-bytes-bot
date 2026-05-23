@@ -49,11 +49,12 @@ module.exports = (client) => {
 					try {
 						const user = await client.users.fetch(profile.discord_id);
 						if (user) {
-							const handbookUrl = process.env.FORK_HANDBOOK_URL || 'https://notion.so';
+							const handbookUrl = 'https://www.notion.so/33949ed2fc33818ba073ffa2d815bf1a?v=33949ed2fc3380ccbfe2000c860aa29a&source=copy_link';
+							const registrationUrl = 'https://perfect-dinghy-781.notion.site/33a49ed2fc33800984e7c28ca3d7cd2a?pvs=105';
 							await user.send(
 								`⚠️ **Action Required: Notion Registration Pending**\n\n` +
 								`You were force-onboarded as the Fork Lead for **${profile.city}**, but your Notion registration details are still missing.\n` +
-								`Please complete your setup by registering your city in the Notion Fork Registry: ${handbookUrl}\n\n` +
+								`Please complete your setup by visiting the **Fork Handbook** (${handbookUrl}) and registering your city in the Notion Fork Registry: ${registrationUrl}\n\n` +
 								`*This reminder will be sent daily until your Notion registration is complete.*`
 							).catch(() => {});
 							
