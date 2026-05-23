@@ -8,21 +8,23 @@ module.exports = {
 		.setDescription('View technical topology of the Bits&Bytes network.'),
 
 	async execute(interaction) {
-        const teamRoleId = '1490410540361580554';
-        const member = await interaction.guild.members.fetch(interaction.user.id);
-        
-        if (!member.roles.cache.has(teamRoleId)) {
-            const unauthorizedEmbed = new EmbedBuilder()
-                .setTitle(`${config.EMOJIS.error} PROTOCOL_UNAUTHORIZED`)
-                .setDescription('Your credentials do not grant access to internal network topology.')
-                .setColor(config.COLORS.error)
-                .setFooter({ text: config.BRANDING.footerText });
+		const allowedRoles = ['1506019068132462804', '1506323726223016149', '1480620981587279993'];
+		const member = await interaction.guild.members.fetch(interaction.user.id);
+		
+		const isAuthorized = allowedRoles.some(roleId => member.roles.cache.has(roleId)) || member.permissions.has('Administrator');
+		
+		if (!isAuthorized) {
+			const unauthorizedEmbed = new EmbedBuilder()
+				.setTitle(`${config.EMOJIS.error} PROTOCOL_UNAUTHORIZED`)
+				.setDescription('Your credentials do not grant access to internal network topology.')
+				.setColor(config.COLORS.error)
+				.setFooter({ text: config.BRANDING.footerText });
 
-            return await interaction.reply({ 
-                embeds: [unauthorizedEmbed], 
-                flags: [MessageFlags.Ephemeral] 
-            });
-        }
+			return await interaction.reply({ 
+				embeds: [unauthorizedEmbed], 
+				flags: [MessageFlags.Ephemeral] 
+			});
+		}
 
 		const flags = config.PRIVACY.forks ? [MessageFlags.Ephemeral] : [];
 		await interaction.deferReply({ flags });
