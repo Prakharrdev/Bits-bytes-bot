@@ -57,12 +57,13 @@ module.exports = {
 				notionStatus = 'pending_registration';
 
 				// Send DM request to fill out Notion profile
-				const handbookUrl = process.env.FORK_HANDBOOK_URL || 'https://notion.so';
 				try {
+					const handbookUrl = 'https://www.notion.so/33949ed2fc33818ba073ffa2d815bf1a?v=33949ed2fc3380ccbfe2000c860aa29a&source=copy_link';
+					const registrationUrl = 'https://perfect-dinghy-781.notion.site/33a49ed2fc33800984e7c28ca3d7cd2a?pvs=105';
 					await user.send(
 						`👋 **Welcome to the Bits&Bytes network!**\n\n` +
 						`An administrator has directly onboarded you as the **Fork Lead** for **${city}**.\n` +
-						`To complete your onboarding, please visit the **Fork Handbook** and fill out the Notion registration database: ${handbookUrl}\n\n` +
+						`To complete your onboarding, please visit the **Fork Handbook** (${handbookUrl}) and fill out the Notion registration database: ${registrationUrl}\n\n` +
 						`*Note: The bot will check daily and remind you until your registration is complete.*`
 					).catch(() => {});
 				} catch (dmErr) {
