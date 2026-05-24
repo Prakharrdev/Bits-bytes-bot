@@ -38,7 +38,13 @@ module.exports = {
 			if (!forkLeadRole) throw new Error('@fork-lead role not found in server.');
 			
 			const member = await guild.members.fetch(user.id);
-			await member.roles.add(forkLeadRole);
+			let roleAssigned = true;
+			try {
+				await member.roles.add(forkLeadRole);
+			} catch (roleErr) {
+				console.error('[MERGE] Failed to assign role (hierarchy/permissions check):', roleErr.message);
+				roleAssigned = false;
+			}
 
 			// 3. Update Notion
 			const fork = await notion.findForkByCity(city);
@@ -84,8 +90,13 @@ module.exports = {
 				.addFields(
 					{ name: '⌬ NODE_LOCATION', value: `\`${city.toUpperCase()}\``, inline: true },
 					{ name: '⌬ SYSTEM_ID', value: `\`${channelName.toUpperCase()}\``, inline: true }
-				)
-				.setColor(config.COLORS.success)
+				);
+
+			if (!roleAssigned) {
+				successEmbed.addFields({ name: 'Warning: Role Assignment', value: `The bot could not assign the **@fork-lead** role automatically because the bot's highest role is below the **@fork-lead** role in the server settings hierarchy. Please assign the role to <@${user.id}> manually.`, inline: false });
+			}
+
+			successEmbed.setColor(config.COLORS.success)
 				.setThumbnail(interaction.guild.iconURL())
 				.setTimestamp()
 				.setFooter({ text: config.BRANDING.footerText });
