@@ -121,12 +121,12 @@ module.exports = {
 		if (targetEmail) {
 			results.emailDelivery.status = '⏳ Sending...';
 			const testBody = `
-				<div style="background-color: #0D0D0D; color: #FFFFFF; font-family: sans-serif; padding: 30px; border-radius: 12px; border: 1px solid #1A1A1A; max-width: 600px; margin: 0 auto;">
-					<h1 style="color: #00D2C4; border-bottom: 2px solid #1A1A1A; padding-bottom: 10px; margin-bottom: 20px;">Bits&Bytes Diagnostics</h1>
-					<p>This is a live connection test email dispatched by your Discord bot via the ping command.</p>
-					<p>All SMTP connections are functioning correctly. Ready for production schedule dispatch!</p>
-					<footer style="margin-top: 40px; font-size: 11px; color: #80848E; border-top: 1px solid #1A1A1A; padding-top: 10px;">
-						Bits&Bytes Protocol // SMTP_MAILER_TEST
+				<div style="background-color: #080504; color: #f7f1ec; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 30px; border-radius: 18px; border: 1px solid rgba(247, 241, 236, 0.12); max-width: 600px; margin: 0 auto; box-shadow: 0 20px 60px rgba(7, 3, 2, 0.55);">
+					<h1 style="color: #ff7a1b; border-bottom: 2px solid #97192c; padding-bottom: 10px; margin-bottom: 20px; font-weight: 700; font-size: 24px;">Bits&Bytes Diagnostics</h1>
+					<p style="line-height: 1.6;">This is a live connection test email dispatched by your Discord bot via the ping command.</p>
+					<p style="line-height: 1.6;">All SMTP connections are functioning correctly. Ready for production schedule dispatch!</p>
+					<footer style="margin-top: 40px; font-size: 11px; color: rgba(247, 241, 236, 0.72); border-top: 1px solid rgba(247, 241, 236, 0.12); padding-top: 10px; letter-spacing: 1px;">
+						BITS&BYTES PROTOCOL // SMTP_MAILER_TEST
 					</footer>
 				</div>
 			`;

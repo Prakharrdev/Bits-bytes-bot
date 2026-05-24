@@ -6,12 +6,12 @@
 module.exports = {
 	// 🎨 TACTICAL PALETTE (Elite Tech Aesthetic - Clean & Professional)
 	COLORS: {
-		primary: '#00D2C4',    // Sleek Cyan
-		secondary: '#2B2D31',  // Premium Dark Charcoal
-		success: '#23A55A',    // Modern Emerald/Mint
-		warning: '#F0B232',    // Warm Amber Gold
-		error: '#F23F43',      // Premium Soft Crimson Red
-		neutral: '#80848E',    // Soft Slate Grey
+		primary: '#97192c',    // Brand Pink / Burgundy Core
+		secondary: '#120f0a',  // Brand Ink
+		success: '#23a55a',    // Modern Emerald/Mint
+		warning: '#ffae24',    // Brand Amber
+		error: '#f04438',      // Destructive Red
+		neutral: '#ff7a1b',    // Brand Coral (Accent)
 	},
 
 	// ⚛️ TACTICAL ICONOGRAPHY (Clean & Minimalist)
