@@ -130,7 +130,7 @@ module.exports = (client) => {
 
 					// Send pings for missing users
 					if (missingUsers.length > 0) {
-						const eventsChannel = getEventsChannel(guild);
+						const eventsChannel = await getEventsChannel(guild);
 						
 						for (const userId of missingUsers) {
 							const lastPing = await meetingsDb.getLastPingTime(meeting.id, userId);
@@ -155,7 +155,7 @@ module.exports = (client) => {
 };
 
 async function sendChannelReminder(guild, meeting, timeLabel, vcLink = '') {
-	const eventsChannel = getEventsChannel(guild);
+	const eventsChannel = await getEventsChannel(guild);
 	if (!eventsChannel) return;
 
 	const tags = meeting.attendees.map(a => a.type === 'user' ? `<@${a.discordId}>` : `<@&${a.discordId}>`).join(' ');
@@ -183,7 +183,7 @@ async function sendChannelReminder(guild, meeting, timeLabel, vcLink = '') {
 }
 
 async function sendCommencementNotification(guild, meeting) {
-	const eventsChannel = getEventsChannel(guild);
+	const eventsChannel = await getEventsChannel(guild);
 	if (!eventsChannel) return;
 
 	const tags = meeting.attendees.map(a => a.type === 'user' ? `<@${a.discordId}>` : `<@&${a.discordId}>`).join(' ');

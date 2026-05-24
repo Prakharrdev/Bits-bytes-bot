@@ -144,7 +144,7 @@ async function handleBookingCreated(client, payload) {
 	}) + ' IST';
 
 	// Announce to events channel
-	const eventsChannel = getEventsChannel(guild);
+	const eventsChannel = await getEventsChannel(guild);
 	if (eventsChannel) {
 		const inviteesDisplay = matchedDiscordIds.map(uid => `<@${uid}>`).concat(externalEmails.map(e => `\`${e}\``));
 
@@ -262,7 +262,7 @@ async function handleBookingRescheduled(client, payload) {
 			}) + ' IST';
 
 			// Announce to events channel
-			const eventsChannel = getEventsChannel(guild);
+			const eventsChannel = await getEventsChannel(guild);
 			if (eventsChannel) {
 				const inviteesDisplay = matchedDiscordIds.map(uid => `<@${uid}>`).concat(externalEmails.map(e => `\`${e}\``));
 				const embed = new EmbedBuilder()
@@ -333,7 +333,7 @@ async function handleBookingCancelled(client, payload) {
 	await meetingsHelper.sendMeetingEmails(guild, existingMeeting, 'cancel');
 
 	// Announce to events channel
-	const eventsChannel = getEventsChannel(guild);
+	const eventsChannel = await getEventsChannel(guild);
 	if (eventsChannel) {
 		const cancelEmbed = new EmbedBuilder()
 			.setTitle(`❌ CALCOM_WEBHOOK // MEETING_CANCELLED`)

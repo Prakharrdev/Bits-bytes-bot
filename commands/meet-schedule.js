@@ -264,7 +264,7 @@ module.exports = {
 
 			// Post the confirmation in the events channel
 			const { getEventsChannel } = require('../lib/calcomWebhook');
-			const eventsChannel = getEventsChannel(guild);
+			const eventsChannel = await getEventsChannel(guild);
 			if (eventsChannel) {
 				await eventsChannel.send({
 					content: `🔔 **Meeting Alert**: ${inviteesDisplay.join(' ')}`,
