@@ -75,6 +75,15 @@ module.exports = {
 						await interaction.reply({ content: `❌ Failed to refresh topology data: ${error.message}`, flags: [MessageFlags.Ephemeral] }).catch(() => null);
 					}
 				}
+			} else if (interaction.customId.startsWith('consent_hindi_')) {
+				// Hindi consent translation button — from meeting recording notice
+				try {
+					const { handleConsentButton } = require('../lib/voiceRecorder');
+					await handleConsentButton(interaction);
+				} catch (error) {
+					console.error('[BUTTON_ERROR] Failed to handle consent button:', error);
+					await interaction.reply({ content: '❌ Could not load Hindi translation.', flags: [MessageFlags.Ephemeral] }).catch(() => null);
+				}
 			}
 		}
 	},

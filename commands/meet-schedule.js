@@ -59,10 +59,14 @@ module.exports = {
 				.setRequired(false)),
 
 	async execute(interaction) {
-		const allowedRoles = ['1506019068132462804', '1506323726223016149', '1480620981587279993'];
+		const { isStaff, getForkLeadRole } = require('../lib/auth');
 		const member = await interaction.guild.members.fetch(interaction.user.id);
 		
-		const isAuthorized = allowedRoles.some(roleId => member.roles.cache.has(roleId)) || member.permissions.has('Administrator');
+		const staffCheck = isStaff(member, interaction.guild);
+		const forkLeadRole = getForkLeadRole(interaction.guild);
+		const isForkLead = forkLeadRole && member.roles.cache.has(forkLeadRole.id);
+		
+		const isAuthorized = staffCheck || isForkLead || member.permissions.has('Administrator');
 		
 		if (!isAuthorized) {
 			const unauthorizedEmbed = new EmbedBuilder()
