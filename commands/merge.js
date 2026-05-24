@@ -33,8 +33,8 @@ module.exports = {
 			}
 
 			// 2. Assign @fork-lead role
-			const forkLeadRoleId = process.env.FORK_LEAD_ROLE_ID || '1490410901147488286';
-			const forkLeadRole = guild.roles.cache.get(forkLeadRoleId) || guild.roles.cache.find(r => r.name === 'fork-lead' || r.name === 'fork lead');
+			const { getForkLeadRole, getStaffRole } = require('../lib/auth');
+			const forkLeadRole = getForkLeadRole(guild);
 			if (!forkLeadRole) throw new Error('@fork-lead role not found in server.');
 			
 			const member = await guild.members.fetch(user.id);
@@ -62,8 +62,7 @@ module.exports = {
 			];
 
 			// Include Staff role explicitly if it exists
-			const STAFF_ROLE_ID = '1480620981587279993';
-			const staffRole = guild.roles.cache.get(STAFF_ROLE_ID);
+			const staffRole = getStaffRole(guild);
 			if (staffRole) {
 				overwrites.push({
 					id: staffRole.id,

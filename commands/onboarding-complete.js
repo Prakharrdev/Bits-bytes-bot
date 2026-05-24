@@ -3,8 +3,7 @@ const notion = require('../lib/notion');
 const onboarding = require('../lib/onboarding');
 const config = require('../config');
 
-// Staff role ID for permission check
-const STAFF_ROLE_ID = '1480620981587279993';
+// Role helpers imported from auth.js
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -23,9 +22,9 @@ module.exports = {
 
 	async execute(interaction) {
 		// Staff permission check
-		const allowedRoles = ['1506019068132462804', '1506323726223016149', '1480620981587279993'];
+		const { isStaff } = require('../lib/auth');
 		const member = await interaction.guild.members.fetch(interaction.user.id);
-		const isAuthorized = allowedRoles.some(roleId => member.roles.cache.has(roleId)) || member.permissions.has('Administrator');
+		const isAuthorized = isStaff(member, interaction.guild);
 
 		if (!isAuthorized) {
 			const unauthorizedEmbed = new EmbedBuilder()
