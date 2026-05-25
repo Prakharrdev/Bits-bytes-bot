@@ -154,6 +154,15 @@ function startWebServer(client) {
         res.redirect('/');
     });
 
+    app.get('/dashboard', (req, res) => {
+        const sessionId = req.cookies.session_id;
+        if (sessionId && sessions.has(sessionId)) {
+            res.sendFile(path.join(__dirname, 'public/dashboard.html'));
+        } else {
+            res.redirect('/');
+        }
+    });
+
     // ============================================
     // API ENDPOINTS
     // ============================================
