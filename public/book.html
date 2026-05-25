@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/style.css">
     <style>
         .month-name {
-            font-size: 1.15rem;
+            font-size: 1.1rem;
             font-weight: 700;
             color: var(--primary);
             letter-spacing: -0.02em;
@@ -92,6 +92,115 @@
             color: var(--primary);
             margin-bottom: 2.5rem;
         }
+
+        /* Cal.com 3-column split view card classes */
+        .calcom-card {
+            background-color: rgba(24, 24, 27, 0.45);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            max-width: 950px;
+            margin: 0 auto;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        @media(min-width: 900px) {
+            .calcom-card {
+                flex-direction: row;
+                min-height: 480px;
+            }
+        }
+
+        .calcom-col {
+            padding: 2.25rem;
+            flex: 1;
+        }
+
+        .host-details-col {
+            background: rgba(9, 9, 11, 0.2);
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid var(--border);
+        }
+
+        @media(min-width: 900px) {
+            .host-details-col {
+                max-width: 300px;
+                border-bottom: none;
+                border-right: 1px solid var(--border);
+            }
+        }
+
+        .calendar-col {
+            border-bottom: 1px solid var(--border);
+        }
+
+        @media(min-width: 900px) {
+            .calendar-col {
+                border-bottom: none;
+                border-right: 1px solid var(--border);
+            }
+        }
+
+        .slots-col {
+            background: rgba(9, 9, 11, 0.15);
+            max-height: 480px;
+            overflow-y: auto;
+            display: none; /* Collapsed/hidden until date selected */
+        }
+
+        @media(min-width: 900px) {
+            .slots-col {
+                max-width: 250px;
+            }
+        }
+
+        .detail-item {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            color: var(--muted-foreground);
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+            font-weight: 500;
+        }
+
+        .detail-item svg {
+            color: var(--muted-foreground);
+            opacity: 0.8;
+        }
+
+        .slots-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-top: 1.25rem;
+        }
+
+        .slot-btn-vertical {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background-color: rgba(9, 9, 11, 0.5);
+            border: 1px solid var(--border);
+            color: var(--primary);
+            text-align: center;
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: var(--transition);
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+
+        .slot-btn-vertical:hover {
+            background-color: var(--primary);
+            color: var(--primary-foreground);
+            border-color: var(--primary);
+        }
     </style>
 </head>
 <body>
@@ -106,25 +215,45 @@
     </header>
 
     <main>
-        <div id="booking-flow" class="booking-container">
-            <!-- Sidebar: Host Bio -->
-            <div class="host-sidebar" id="host-sidebar">
-                <div class="user-avatar" style="width: 72px; height: 72px; font-size: 2rem; margin-bottom: 1.5rem; box-shadow: 0 4px 15px rgba(0,0,0,0.4);" id="host-avatar">?</div>
-                <h2 id="host-name" style="margin-bottom: 0.25rem;">Loading host...</h2>
-                <span id="host-title" style="color: var(--muted-foreground); font-family: monospace; display: block; margin-bottom: 1.5rem; font-size: 0.9rem;">@handle</span>
-                <p id="host-description" style="color: var(--muted-foreground); font-size: 0.925rem; line-height: 1.6; margin-bottom: 2.5rem; flex: 1;">Loading bio...</p>
-                <div class="timezone-badge" style="font-size: 0.85rem; width: fit-content; margin-top: auto;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-                        <path d="M2 12h20"></path>
-                    </svg>
-                    <span>Timezone: </span><strong id="host-timezone">Asia/Kolkata</strong>
+        <div id="booking-flow" class="calcom-card">
+            <!-- Column 1: Host details -->
+            <div class="calcom-col host-details-col" id="host-sidebar">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; color: var(--muted-foreground); font-size: 0.85rem; font-weight: 700;">
+                    <img src="https://gobitsnbytes.org/logo" alt="Bits&Bytes" style="height: 18px; width: auto;">
+                    <span>Bits&Bytes Foundation</span>
+                </div>
+                <div class="user-avatar" style="width: 48px; height: 48px; font-size: 1.25rem; margin-bottom: 1.25rem; box-shadow: 0 4px 15px rgba(0,0,0,0.4);" id="host-avatar">?</div>
+                <h2 id="host-name" style="font-size: 1.35rem; font-weight: 800; margin-bottom: 0.25rem; color: var(--primary);">Loading host...</h2>
+                <span id="host-title" style="color: var(--muted-foreground); font-family: monospace; display: block; margin-bottom: 1.5rem; font-size: 0.85rem;">@handle</span>
+                <p id="host-description" style="color: var(--muted-foreground); font-size: 0.9rem; line-height: 1.6; margin-bottom: 2rem;">Loading bio...</p>
+                
+                <div style="margin-top: auto; display: flex; flex-direction: column; gap: 0.75rem;">
+                    <div class="detail-item">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        <span>30 Min Sync Session</span>
+                    </div>
+                    <div class="detail-item">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        <span>Discord Voice Channel</span>
+                    </div>
+                    <div class="timezone-badge" style="font-size: 0.8rem; width: fit-content;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                            <path d="M2 12h20"></path>
+                        </svg>
+                        <strong id="host-timezone">Asia/Kolkata</strong>
+                    </div>
                 </div>
             </div>
 
-            <!-- Calendar slot selector -->
-            <div class="glass-card">
+            <!-- Column 2: Calendar -->
+            <div class="calcom-col calendar-col">
                 <div class="calendar-wrapper">
                     <div class="calendar-header">
                         <button type="button" class="nav-arrow" id="prev-month">◀</button>
@@ -136,12 +265,13 @@
                         <!-- Days populated by JS -->
                     </div>
                 </div>
+            </div>
 
-                <div class="slots-container" id="slots-section" style="display: none;">
-                    <h3 style="border-top: 1px solid var(--border); padding-top: 1.75rem; margin-top: 1.75rem;" id="selected-date-heading">Select a Time Slot</h3>
-                    <div class="slots-grid" id="slots-grid">
-                        <!-- Slots populated by JS -->
-                    </div>
+            <!-- Column 3: Slots -->
+            <div class="calcom-col slots-col" id="slots-section">
+                <h3 id="selected-date-heading" style="font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--primary);">Select a Time</h3>
+                <div class="slots-list" id="slots-grid">
+                    <!-- Slots populated by JS -->
                 </div>
             </div>
         </div>
@@ -216,7 +346,7 @@
     </main>
 
     <footer>
-        <p>© 2026 Bits&Bytes Network. Powered by Discord Voice Infrastructure.</p>
+        <p>© 2026 Bits&Bytes Foundation. Powered by Discord Voice Infrastructure.</p>
     </footer>
 
     <script>
@@ -349,7 +479,7 @@
                 
                 slots.forEach(slot => {
                     const btn = document.createElement('button');
-                    btn.className = 'slot-btn';
+                    btn.className = 'slot-btn-vertical';
                     btn.textContent = slot;
                     btn.type = 'button';
                     

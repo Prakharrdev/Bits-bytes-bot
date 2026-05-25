@@ -170,7 +170,7 @@ function startWebServer(client) {
 
     // Update availability config
     app.post('/api/user/availability', checkAuth, async (req, res) => {
-        const { title, booking_link, description, timezone, weekly_hours } = req.body;
+        const { title, booking_link, description, timezone, weekly_hours, calcom_event_type_id } = req.body;
         
         if (!title || !booking_link) {
             return res.status(400).json({ error: 'Title and Booking Handle are required' });
@@ -193,9 +193,9 @@ function startWebServer(client) {
 
             await db.run(
                 `UPDATE user_availability 
-                 SET title = ?, booking_link = ?, description = ?, timezone = ?, weekly_hours = ?
+                 SET title = ?, booking_link = ?, description = ?, timezone = ?, weekly_hours = ?, calcom_event_type_id = ?
                  WHERE discord_id = ?`,
-                [title, booking_link, description, timezone || 'Asia/Kolkata', weekly_hours, req.user.id]
+                [title, booking_link, description, timezone || 'Asia/Kolkata', weekly_hours, calcom_event_type_id || null, req.user.id]
             );
 
             // Sync email address to email preferences table too
@@ -210,10 +210,22 @@ function startWebServer(client) {
         }
     });
 
+    // Fetch available event types from Cal.com
+    app.get('/api/calcom/event-types', checkAuth, async (req, res) => {
+        try {
+            const calcom = require('./lib/calcom');
+            const eventTypes = await calcom.getEventTypes();
+            res.json(eventTypes);
+        } catch (err) {
+            console.error('[CALCOM_API_ERROR]', err);
+            res.status(500).json({ error: 'Failed to retrieve event types' });
+        }
+    });
+
     // List all active booking profiles
     app.get('/api/users', async (req, res) => {
         try {
-            const users = await db.all(`SELECT username, title, booking_link, description, timezone, weekly_hours FROM user_availability WHERE booking_link IS NOT NULL`);
+            const users = await db.all(`SELECT username, title, booking_link, description, timezone, weekly_hours, calcom_event_type_id FROM user_availability WHERE booking_link IS NOT NULL`);
             res.json(users);
         } catch (err) {
             res.status(500).json({ error: 'Database query failed' });
@@ -235,6 +247,62 @@ function startWebServer(client) {
                 return res.status(404).json({ error: 'Host not found' });
             }
 
+            // Get host timezone offset (e.g., '+05:30')
+            const offset = OFFSETS[host.timezone] || '+05:30';
+
+            // If Cal.com event type is configured, fetch slots directly from Cal.com
+            if (host.calcom_event_type_id && process.env.CALCOM_API_KEY) {
+                try {
+                    const calcom = require('./lib/calcom');
+                    const localStartISO = `${date}T00:00:00${offset}`;
+                    const localEndISO = `${date}T23:59:59${offset}`;
+                    const startUTC = new Date(localStartISO).toISOString();
+                    const endUTC = new Date(localEndISO).toISOString();
+
+                    const slotsData = await calcom.getSlots(host.calcom_event_type_id, startUTC, endUTC);
+                    const slotsMap = slotsData.slots || slotsData;
+                    const freeSlots = [];
+
+                    let slotsArray = [];
+                    if (Array.isArray(slotsMap)) {
+                        slotsArray = slotsMap;
+                    } else if (slotsMap && typeof slotsMap === 'object') {
+                        for (const dKey in slotsMap) {
+                            if (Array.isArray(slotsMap[dKey])) {
+                                slotsArray.push(...slotsMap[dKey]);
+                            }
+                        }
+                    }
+
+                    for (const s of slotsArray) {
+                        const sTime = s.time; // e.g. "2026-05-26T16:00:00Z"
+                        if (sTime) {
+                            const dateObj = new Date(sTime);
+                            // Convert to host's local timezone
+                            const localTimeStr = dateObj.toLocaleTimeString('en-US', {
+                                timeZone: host.timezone,
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false
+                            });
+                            const parts = localTimeStr.split(':');
+                            if (parts.length >= 2) {
+                                const formatted = `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+                                if (dateObj.getTime() > Date.now() && !freeSlots.includes(formatted)) {
+                                    freeSlots.push(formatted);
+                                }
+                            }
+                        }
+                    }
+
+                    freeSlots.sort();
+                    return res.json(freeSlots);
+                } catch (calcomErr) {
+                    console.error('[CALCOM] Slots fetch failed, falling back to local availability calculation:', calcomErr.message);
+                }
+            }
+
+            // Fallback: Calculate availability locally using weekly_hours and SQLite database
             const weeklyHours = JSON.parse(host.weekly_hours || '{}');
             const dayOfWeek = new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
             const dailySlots = weeklyHours[dayOfWeek] || [];
@@ -242,9 +310,6 @@ function startWebServer(client) {
             if (dailySlots.length === 0) {
                 return res.json([]);
             }
-
-            // Get host timezone offset (e.g., '+05:30')
-            const offset = OFFSETS[host.timezone] || '+05:30';
 
             // Query active meetings for this host on this date
             const meetings = await db.all(`
@@ -356,6 +421,33 @@ function startWebServer(client) {
             // Create the meeting record
             const id = `meet_calweb_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             
+            // Push booking to Cal.com if event type is configured
+            let calcomBookingId = null;
+            if (host.calcom_event_type_id && process.env.CALCOM_API_KEY) {
+                try {
+                    const calcom = require('./lib/calcom');
+                    const bookingBody = {
+                        eventTypeId: parseInt(host.calcom_event_type_id, 10),
+                        start: new Date(startTimeMs).toISOString(),
+                        end: new Date(endTimeMs).toISOString(),
+                        metadata: {
+                            discord_meeting_id: id
+                        },
+                        attendee: {
+                            name: name,
+                            email: email.trim().toLowerCase(),
+                            timeZone: host.timezone
+                        }
+                    };
+                    const bookingResponse = await calcom.createBooking(bookingBody);
+                    if (bookingResponse && (bookingResponse.uid || bookingResponse.id)) {
+                        calcomBookingId = String(bookingResponse.uid || bookingResponse.id);
+                    }
+                } catch (calcomErr) {
+                    console.warn('[CALCOM] Web booking sync failed:', calcomErr.message);
+                }
+            }
+
             const newMeeting = {
                 id,
                 title: `${host.title} <> ${name}: ${title}`,
@@ -366,7 +458,9 @@ function startWebServer(client) {
                 creatorId: host.discord_id,
                 status: 'scheduled',
                 endTime: endTimeMs,
-                externalEmails: [email.trim().toLowerCase()]
+                externalEmails: [email.trim().toLowerCase()],
+                calcomBookingId,
+                calcomUid: calcomBookingId
             };
 
             await meetingsDb.createMeeting(newMeeting);
