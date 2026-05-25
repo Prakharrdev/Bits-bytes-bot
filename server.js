@@ -58,14 +58,30 @@ function startWebServer(client) {
     });
 
     // Auth verification helper middleware
-    function checkAuth(req, res, next) {
+    async function checkAuth(req, res, next) {
         const sessionId = req.cookies.session_id;
-        if (sessionId && sessions.has(sessionId)) {
-            req.user = sessions.get(sessionId);
-            next();
-        } else {
-            res.status(401).json({ error: 'Unauthorized' });
+        if (sessionId) {
+            if (sessions.has(sessionId)) {
+                req.user = sessions.get(sessionId);
+                return next();
+            }
+            try {
+                const session = await db.get(`SELECT * FROM web_sessions WHERE id = ? AND expires_at > ?`, [sessionId, Date.now()]);
+                if (session) {
+                    const userDetails = {
+                        id: session.user_id,
+                        username: session.username,
+                        email: session.email
+                    };
+                    sessions.set(sessionId, userDetails);
+                    req.user = userDetails;
+                    return next();
+                }
+            } catch (err) {
+                console.error('[AUTH_ERROR] Session check failed:', err);
+            }
         }
+        res.status(401).json({ error: 'Unauthorized' });
     }
 
     // ============================================
@@ -189,10 +205,20 @@ function startWebServer(client) {
 
             // Create session
             const sessionId = `session_${crypto.randomBytes(16).toString('hex')}`;
-            sessions.set(sessionId, {
+            const userDetails = {
                 id: userData.id,
                 username: userData.username,
                 email: userData.email || null,
+            };
+            sessions.set(sessionId, userDetails);
+
+            const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
+            await db.run(
+                `INSERT INTO web_sessions (id, user_id, username, email, expires_at)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [sessionId, userData.id, userData.username, userData.email || null, expiresAt]
+            ).catch(err => {
+                console.error('[AUTH_CALLBACK] Failed to save session to DB:', err.message);
             });
 
             // Write record or update username in user_availability table if missing
@@ -228,22 +254,37 @@ function startWebServer(client) {
         }
     });
 
-    app.get('/logout', (req, res) => {
+    app.get('/logout', async (req, res) => {
         const sessionId = req.cookies.session_id;
         if (sessionId) {
             sessions.delete(sessionId);
+            await db.run('DELETE FROM web_sessions WHERE id = ?', [sessionId]).catch(() => {});
         }
         res.clearCookie('session_id', { path: '/' });
         res.redirect('/');
     });
 
-    app.get('/dashboard', (req, res) => {
+    app.get('/dashboard', async (req, res) => {
         const sessionId = req.cookies.session_id;
-        if (sessionId && sessions.has(sessionId)) {
-            res.sendFile(path.join(__dirname, 'public/dashboard.html'));
-        } else {
-            res.redirect('/');
+        if (sessionId) {
+            if (sessions.has(sessionId)) {
+                return res.sendFile(path.join(__dirname, 'public/dashboard.html'));
+            }
+            try {
+                const session = await db.get(`SELECT * FROM web_sessions WHERE id = ? AND expires_at > ?`, [sessionId, Date.now()]);
+                if (session) {
+                    sessions.set(sessionId, {
+                        id: session.user_id,
+                        username: session.username,
+                        email: session.email
+                    });
+                    return res.sendFile(path.join(__dirname, 'public/dashboard.html'));
+                }
+            } catch (err) {
+                console.error('[DASHBOARD_ERROR] Session check failed:', err);
+            }
         }
+        res.redirect('/');
     });
 
     // ============================================
@@ -974,6 +1015,7 @@ async function runUserCleanup(client) {
                         sessions.delete(sid);
                     }
                 }
+                await db.run('DELETE FROM web_sessions WHERE user_id = ?', [dbUser.discord_id]).catch(() => {});
 
                 // Delete from database
                 await db.run('DELETE FROM user_availability WHERE discord_id = ?', [dbUser.discord_id]);
