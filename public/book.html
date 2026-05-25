@@ -537,7 +537,7 @@
                     <div class="user-avatar" style="width: 32px; height: 32px; font-size: 0.85rem; flex-shrink: 0; background: var(--muted); border: 1px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--primary);">${avatarLetter}</div>
                     <div style="flex: 1; min-width: 0;">
                         <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;">${host.title || host.username}</h4>
-                        <span style="font-size: 0.725rem; color: var(--muted-foreground); font-family: monospace; display: block;">@${host.booking_link}${isPrimary ? ' (Lead)' : ''}</span>
+                        <span style="font-size: 0.725rem; color: var(--muted-foreground); font-family: monospace; display: block;">@${host.booking_link}${isPrimary ? ' (Host)' : ''}</span>
                     </div>
                     ${!isPrimary ? `
                         <button type="button" class="remove-host-btn" onclick="removeHost('${host.booking_link}')" style="background: none; border: none; color: var(--error); cursor: pointer; padding: 0.25rem 0.5rem; font-size: 1.1rem; line-height: 1; outline: none; transition: var(--transition);" title="Remove host">×</button>
