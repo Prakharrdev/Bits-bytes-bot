@@ -5,11 +5,11 @@ Internal operations bot for the Bits&Bytes Discord server. Manages the fork life
 ## Setup
 
 ```bash
-npm install
+pnpm install
 cp .env.example .env
 # Fill in your tokens in .env
 node deploy-commands.js   # Register slash commands (run once)
-node index.js             # Start the bot
+pnpm start                # Start the bot
 ```
 
 ## Minimal VPS Deploy
@@ -65,7 +65,24 @@ Set these GitHub secrets:
 | Command | Role | Description |
 |---------|------|-------------|
 | `/fork-request` | Everyone | Submit a fork request via modal |
-| `/merge @user city:x` | @team | Onboard a new fork lead |
+| `/merge @user city:x` | Staff Only | Onboard a new fork lead |
 | `/pulse city:x update:"..."` | @fork-lead | Post an activity update |
-| `/archive city:x reason:"..."` | @team | Archive a stale fork |
+| `/archive city:x reason:"..."` | Staff Only | Archive a stale fork |
 | `/forks` | Everyone | List all active/pending forks |
+| `/fork-status` | Everyone | View complete fork status dashboard |
+| `/fork-health` | Everyone | View fork health leaderboard or specific city score |
+| `/fork-badges` | Everyone | View achievements and badges awarded to a fork |
+| `/leaderboard` | Everyone | View the network points leaderboard |
+| `/onboarding-status` | Everyone | View onboarding checklist progress |
+| `/onboarding-complete` | Staff Only | Mark onboarding step complete (1-7) |
+| `/event-create` | @fork-lead | Create a new event proposal |
+| `/event-update` | @fork-lead | Update event status, date, or headcount |
+| `/event-status` | Everyone | View upcoming and planned events |
+| `/event-calendar` | Everyone | Display network-wide event calendar |
+| `/team-view` | Everyone | View fork team members and composition validator |
+| `/team-update` | @fork-lead | Add or remove members and roles |
+| `/report-submit` | @fork-lead | Submit fork bi-weekly/monthly report |
+| `/report-status` | Everyone | View report submission status across the network |
+| `/meet-schedule` | Everyone | Schedule a sync session with core team members |
+| `/meet-start` | Everyone | Manually start a scheduled voice meeting |
+| `/meet-transcript` | Everyone | Retrieve past meeting notes, summaries, and transcripts |

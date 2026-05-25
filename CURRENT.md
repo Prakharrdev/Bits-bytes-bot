@@ -536,6 +536,59 @@ The dashboard pulls data from:
 
 ---
 
+## 🎙️ Feature 9: Meeting Scheduler & Voice Agent
+
+### Description
+Exposes a web scheduling portal (`cal.gobnb.org`) for members to book sync sessions, links bookings with Cal.com/Google Calendar, provisions temporary Discord Voice Channels, plays legal consent warnings, records the audio, transcribes it with Gemini, and delivers formatted briefs.
+
+### Key Workflows
+1. **Web Scheduler Portal (`cal.gobnb.org`):**
+   - Built with raw responsive HTML/JS and Svelte-like Vanilla CSS in `public/style.css`.
+   - Supports display titles, custom bios, timezone configurations, and weekly availability selectors.
+   - Provides a multi-host selection system (combining schedules for multiple leads) and custom meeting durations.
+   - Automatically pre-fills form data for logged-in Discord members and secures inputs against iOS Safari auto-zooming.
+   - Implements direct "⚡ Request Instant Meet" buttons triggering direct Discord DMs with interactive Accept/Decline action controls.
+2. **Discord Voice Provisioning:**
+   - Automatically provisions a temporary VC channel under the `EVENTS` category.
+   - Explicitly adds the bot client ID to channel overrides to prevent voice lockout during E2E encryption handshakes.
+   - Triggers voice join callbacks that announce meeting commencement and self-starts the audio recorder.
+3. **Legal Recording Consent:**
+   - Plays audio warning notices (in English and Hindi) on VC join.
+   - Features a safety timeout of `90_000` ms to ensure long text notices are not cut off.
+   - Sends direct text notices to late joiners in the VC chat with language translation toggle buttons.
+4. **Recording & Gemini Transcription:**
+   - Subscribes to Opus audio streams, decodes, and records audio packets with valid header CRC checksums to prevent FFmpeg mismatches.
+   - Merges separate speaker segments, uploads them to the Google File API, and utilizes `gemini-3.5-flash` to extract a speaker-labeled Hinglish/English transcript and JSON briefs.
+5. **DM Briefs Delivery:**
+   - Matches invitee and host emails to registered Discord profiles and registers them in database tables.
+   - Formats a summary, key decisions, and action items inside a Discord Embed and DMs it directly to all attendees along with the full transcript as a `.txt` file attachment.
+
+### Commands
+
+#### `/meet-schedule`
+View or generate booking links to schedule sync sessions.
+
+#### `/meet-start`
+Manually mark a meeting as active, DM any missing invitees, and start recording immediately.
+
+#### `/meet-transcript`
+Query the database for past sync sessions and retrieve/DM meeting notes.
+
+### Files
+- `server.js` - Schedulers API, OAuth callback, cookie persistence, instant meet handles
+- `webhookServer.js` - Cal.com instant booking webhook sync and matched attendee registry
+- `public/book.html` - Three-column split view booking page, dynamic slots, smooth scroll
+- `public/dashboard.html` - Member profile, bio, timezone, and relative grid availability
+- `public/style.css` - Global theme tokens and mobile media query rules
+- `lib/voiceRecorder.js` - Discord voice connection, consent audio loops (90s limit), segments recording
+- `lib/transcriptionPipeline.js` - Merge audio streams, query Gemini, clean up Google File API files
+- `lib/transcriptDelivery.js` - Build summary embeds and DM attendees
+- `commands/meet-schedule.js` - Schedule command
+- `commands/meet-start.js` - Start command
+- `commands/meet-transcript.js` - Retrieval command
+
+---
+
 ## 🔧 Configuration
 
 ### Environment Variables
