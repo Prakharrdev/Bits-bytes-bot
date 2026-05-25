@@ -7,24 +7,29 @@
     <link rel="stylesheet" href="/style.css">
     <style>
         .month-name {
-            font-size: 1.25rem;
+            font-size: 1.15rem;
             font-weight: 700;
+            color: var(--primary);
+            letter-spacing: -0.02em;
         }
         .nav-arrow {
             width: 32px;
             height: 32px;
             border-radius: 50%;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--card-border);
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: var(--transition);
             font-size: 0.8rem;
+            color: var(--muted-foreground);
         }
         .nav-arrow:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--primary);
+            border-color: #3f3f46;
         }
         .modal {
             display: none;
@@ -33,8 +38,9 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.8);
-            backdrop-filter: blur(8px);
+            background: rgba(9, 9, 11, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             align-items: center;
             justify-content: center;
             z-index: 1000;
@@ -43,12 +49,55 @@
             width: 100%;
             max-width: 500px;
         }
+        .selected-datetime-banner {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+        .details-info-box {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            text-align: left;
+        }
+        .details-info-box p {
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+        }
+        .details-info-box p:last-child {
+            margin-bottom: 0;
+        }
+        .details-info-box strong {
+            color: var(--muted-foreground);
+            font-weight: 500;
+            display: inline-block;
+            width: 90px;
+        }
+        .details-info-box span {
+            color: var(--primary);
+            font-weight: 600;
+        }
+        .notice-card {
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.15);
+            border-radius: var(--radius);
+            padding: 1.25rem;
+            font-size: 0.875rem;
+            text-align: left;
+            line-height: 1.6;
+            color: var(--primary);
+            margin-bottom: 2.5rem;
+        }
     </style>
 </head>
 <body>
     <header>
         <div class="logo-container">
-            <img src="https://gobitsnbytes.org/logo" alt="Bits&Bytes" style="height: 20px; width: auto;">
+            <img src="https://gobitsnbytes.org/logo" alt="Bits&Bytes Logo">
             <span class="logo-text">bits&bytes // scheduler</span>
         </div>
         <div class="nav-links">
@@ -60,12 +109,17 @@
         <div id="booking-flow" class="booking-container">
             <!-- Sidebar: Host Bio -->
             <div class="host-sidebar" id="host-sidebar">
-                <div class="user-avatar" style="width:70px; height:70px; font-size:1.8rem; margin-bottom: 1.5rem;" id="host-avatar">?</div>
+                <div class="user-avatar" style="width: 72px; height: 72px; font-size: 2rem; margin-bottom: 1.5rem; box-shadow: 0 4px 15px rgba(0,0,0,0.4);" id="host-avatar">?</div>
                 <h2 id="host-name" style="margin-bottom: 0.25rem;">Loading host...</h2>
-                <span id="host-title" style="color: var(--secondary); font-weight: 500; display: block; margin-bottom: 1.5rem; font-size: 0.95rem;">Core Member</span>
-                <p id="host-description" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6; margin-bottom: 2rem;">Loading details...</p>
-                <div class="timezone-badge" style="font-size: 0.9rem;">
-                    <span>🌐 Timezone: </span><strong id="host-timezone">Asia/Kolkata</strong>
+                <span id="host-title" style="color: var(--muted-foreground); font-family: monospace; display: block; margin-bottom: 1.5rem; font-size: 0.9rem;">@handle</span>
+                <p id="host-description" style="color: var(--muted-foreground); font-size: 0.925rem; line-height: 1.6; margin-bottom: 2.5rem; flex: 1;">Loading bio...</p>
+                <div class="timezone-badge" style="font-size: 0.85rem; width: fit-content; margin-top: auto;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                        <path d="M2 12h20"></path>
+                    </svg>
+                    <span>Timezone: </span><strong id="host-timezone">Asia/Kolkata</strong>
                 </div>
             </div>
 
@@ -73,20 +127,20 @@
             <div class="glass-card">
                 <div class="calendar-wrapper">
                     <div class="calendar-header">
-                        <div class="nav-arrow" id="prev-month">◀</div>
-                        <div class="month-name" id="month-display">May 2026</div>
-                        <div class="nav-arrow" id="next-month">▶</div>
+                        <button type="button" class="nav-arrow" id="prev-month">◀</button>
+                        <div class="month-name" id="month-display">Loading Month...</div>
+                        <button type="button" class="nav-arrow" id="next-month">▶</button>
                     </div>
                     
                     <div class="calendar-grid" id="calendar-grid">
-                        <!-- Days populates by JS -->
+                        <!-- Days populated by JS -->
                     </div>
                 </div>
 
                 <div class="slots-container" id="slots-section" style="display: none;">
-                    <h3 style="border-top: 1px solid var(--card-border); padding-top: 1.5rem; margin-top: 1.5rem;" id="selected-date-heading">Select a Time Slot</h3>
+                    <h3 style="border-top: 1px solid var(--border); padding-top: 1.75rem; margin-top: 1.75rem;" id="selected-date-heading">Select a Time Slot</h3>
                     <div class="slots-grid" id="slots-grid">
-                        <!-- Slots populates by JS -->
+                        <!-- Slots populated by JS -->
                     </div>
                 </div>
             </div>
@@ -95,10 +149,11 @@
         <!-- Booking details Modal -->
         <div class="modal" id="booking-modal">
             <div class="glass-card modal-content">
-                <h3 style="margin-bottom: 1.5rem;">Confirm Meeting Details</h3>
-                <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--card-border); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
-                    <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.25rem;">Selected Date & Time:</p>
-                    <p id="selected-datetime-label" style="font-weight: 600; color: var(--secondary);"></p>
+                <h3 style="margin-bottom: 1.5rem; letter-spacing: -0.02em;">Confirm Meeting Details</h3>
+                
+                <div class="selected-datetime-banner">
+                    <p style="font-size: 0.775rem; font-weight: 700; color: var(--muted-foreground); text-transform: uppercase; margin-bottom: 0.25rem; letter-spacing: 0.05em;">Selected Date & Time</p>
+                    <p id="selected-datetime-label" style="font-weight: 700; color: var(--primary); font-size: 0.95rem;"></p>
                 </div>
                 
                 <form id="booking-form">
@@ -121,27 +176,39 @@
                     
                     <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
                         <button type="button" class="btn btn-secondary" id="close-modal-btn">Cancel</button>
-                        <button type="submit" class="btn btn-primary" id="submit-booking-btn">Confirm Book</button>
+                        <button type="submit" class="btn btn-primary" id="submit-booking-btn">Confirm booking</button>
                     </div>
                 </form>
             </div>
         </div>
 
         <!-- Success Screen -->
-        <div class="glass-card success-container" id="success-screen" style="display: none; max-width: 600px; margin: 0 auto;">
-            <div class="success-icon">✓</div>
+        <div class="glass-card success-container" id="success-screen" style="display: none;">
+            <div class="success-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </div>
             <h2>Meeting Successfully Booked!</h2>
-            <p class="subtitle" style="margin-bottom: 2rem;">We have registered your session. A calendar invite has been sent to your email with the details.</p>
+            <p class="subtitle" style="margin-bottom: 2rem;">Your sync session has been scheduled. A calendar invitation (.ics) has been dispatched to your email inbox.</p>
             
-            <div style="text-align: left; background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem;">
-                <p style="margin-bottom: 0.5rem;"><strong style="color: var(--text-muted);">Meeting:</strong> <span id="success-meeting-title"></span></p>
-                <p style="margin-bottom: 0.5rem;"><strong style="color: var(--text-muted);">Host:</strong> <span id="success-host-name"></span></p>
-                <p style="margin-bottom: 0.5rem;"><strong style="color: var(--text-muted);">Time:</strong> <span id="success-time"></span></p>
-                <p style="margin-bottom: 0.5rem;"><strong style="color: var(--text-muted);">Location:</strong> <span id="success-location">Discord Temporary Voice Channel</span></p>
+            <div class="details-info-box">
+                <p><strong>Meeting:</strong> <span id="success-meeting-title">Sync meeting</span></p>
+                <p><strong>Host:</strong> <span id="success-host-name">Core team member</span></p>
+                <p><strong>Time:</strong> <span id="success-time">Time</span></p>
+                <p><strong>Location:</strong> <span id="success-location">Discord Temporary Voice Channel</span></p>
             </div>
             
-            <div style="background: rgba(138, 43, 226, 0.1); border: 1px solid rgba(138, 43, 226, 0.2); border-radius: 8px; padding: 1rem; font-size: 0.9rem; text-align: left; line-height: 1.5; color: var(--text-main); margin-bottom: 2.5rem;">
-                ℹ️ **Discord VC Provisioning**: Five minutes before the meeting starts, the bot will automatically provision a temporary voice channel in the Bits&Bytes server named after the meeting and ping the invitees via Discord DM with the join link.
+            <div class="notice-card">
+                <div style="font-weight: 700; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.5rem; color: #10b981;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                    Discord VC Provisioning
+                </div>
+                Five minutes before the sync starts, our bot will automatically provision a temporary voice channel in the Bits&Bytes server named after the meeting and notify the host via Discord DM.
             </div>
 
             <a href="/" class="btn btn-primary">Return to Scheduler Home</a>
@@ -153,7 +220,6 @@
     </footer>
 
     <script>
-        // Extract booking link from URL path
         const bookingLink = window.location.pathname.substring(1);
         let hostData = null;
         let currentDate = new Date();
@@ -170,11 +236,11 @@
                 
                 if (!hostData) {
                     document.getElementById('booking-flow').innerHTML = `
-                        <div class="empty-state" style="grid-column: 1 / -1; color: var(--error);">
-                            <div class="empty-icon">🔍</div>
-                            <h2>Host Not Found</h2>
-                            <p class="subtitle" style="margin-top: 0.5rem;">The booking handle "${bookingLink}" is not registered.</p>
-                            <a href="/" class="btn btn-secondary">Go to Home</a>
+                        <div class="empty-state" style="grid-column: 1 / -1; border-color: var(--error);">
+                            <div class="empty-icon" style="color: var(--error);">🔍</div>
+                            <h2 style="color: var(--error);">Host Not Found</h2>
+                            <p>The booking handle "@${bookingLink}" does not match any registered team member.</p>
+                            <a href="/" class="btn btn-secondary" style="margin-top: 1rem;">Go to Home</a>
                         </div>
                     `;
                     return;
@@ -246,7 +312,6 @@
                     }
                     
                     calendarDay.addEventListener('click', () => {
-                        // Clear previous active
                         const active = grid.querySelector('.calendar-day.active');
                         if (active) active.classList.remove('active');
                         
@@ -265,7 +330,7 @@
             const slotsGrid = document.getElementById('slots-grid');
             
             slotsSection.style.display = 'block';
-            slotsGrid.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">Fetching available slots...</p>';
+            slotsGrid.innerHTML = '<p style="color: var(--muted-foreground); font-size: 0.9rem;">Checking slots...</p>';
             
             const dateObj = new Date(dateStr);
             const dateFormatted = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
@@ -301,7 +366,6 @@
             }
         }
 
-        // Modal triggers
         function openBookingModal() {
             const modal = document.getElementById('booking-modal');
             const label = document.getElementById('selected-datetime-label');
@@ -310,7 +374,6 @@
             const dateFormatted = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
             
             label.textContent = `${dateFormatted} at ${selectedTimeSlot} (${hostData.timezone})`;
-            
             modal.style.display = 'flex';
         }
 
@@ -318,7 +381,6 @@
             document.getElementById('booking-modal').style.display = 'none';
         });
 
-        // Handle navigation
         document.getElementById('prev-month').addEventListener('click', () => {
             currentDate.setMonth(currentDate.getMonth() - 1);
             renderCalendar();
@@ -331,7 +393,6 @@
             document.getElementById('slots-section').style.display = 'none';
         });
 
-        // Submit Booking Form
         document.getElementById('booking-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -342,7 +403,7 @@
             
             const submitBtn = document.getElementById('submit-booking-btn');
             submitBtn.disabled = true;
-            submitBtn.textContent = 'Booking...';
+            submitBtn.textContent = 'Scheduling...';
             
             try {
                 const res = await fetch(`/api/book/${bookingLink}`, {
@@ -372,14 +433,14 @@
                     document.getElementById('success-screen').style.display = 'block';
                 } else {
                     const err = await res.json();
-                    alert(err.error || 'Failed to book meeting. The slot may have been taken.');
+                    alert(err.error || 'Failed to schedule. The slot may have been reserved by another user.');
                 }
             } catch (err) {
                 console.error(err);
-                alert('Connection failure during booking.');
+                alert('Connection error occurred.');
             } finally {
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Confirm Book';
+                submitBtn.textContent = 'Confirm booking';
             }
         });
 

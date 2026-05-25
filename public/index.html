@@ -9,27 +9,31 @@
 <body>
     <header>
         <div class="logo-container">
-            <img src="https://gobitsnbytes.org/logo" alt="Bits&Bytes" style="height: 20px; width: auto;">
+            <img src="https://gobitsnbytes.org/logo" alt="Bits&Bytes Logo">
             <span class="logo-text">bits&bytes // scheduler</span>
         </div>
         <div class="nav-links" id="nav-links">
             <a href="/login" class="btn btn-primary" id="login-btn">
+                <svg width="18" height="18" viewBox="0 0 127.14 96.36" fill="currentColor">
+                    <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36a77.7,77.7,0,0,0,6.63-10.85,69.43,69.43,0,0,1-10.43-5c.87-.64,1.72-1.31,2.53-2a75.76,75.76,0,0,0,75.68,0c.81.69,1.66,1.36,2.53,2a69.43,69.43,0,0,1-10.43,5,77.7,77.7,0,0,0,6.63,10.85,105.73,105.73,0,0,0,31-18.83C129.8,48.12,122.9,25.32,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z"/>
+                </svg>
                 <span>Login with Discord</span>
             </a>
         </div>
     </header>
 
     <main>
-        <div class="glass-card" style="margin-bottom: 3rem; text-align: center;">
+        <div class="hero-section">
             <h1>Schedule a Meeting with Our Team</h1>
-            <p class="subtitle" style="margin-bottom: 0;">Select a member of the Bits&Bytes core team below to book a sync. Meetings are hosted on our official Discord conferencing infrastructure with automated VC provisioning and transcripts.</p>
+            <p class="subtitle">Select a member of the Bits&Bytes core team below to book a sync. Meetings are hosted on our official Discord conferencing infrastructure with automated temporary voice channels and calendar invitations.</p>
         </div>
 
         <div class="users-grid" id="hosts-grid">
             <!-- Dynamically populated -->
-            <div class="empty-state" id="loading-indicator">
+            <div class="empty-state" id="loading-indicator" style="grid-column: 1 / -1; border-style: solid;">
                 <div class="empty-icon">⏳</div>
-                p Loading available team members...
+                <h2>Loading team members</h2>
+                <p>Connecting to database, please hold...</p>
             </div>
         </div>
     </main>
@@ -52,7 +56,7 @@
                         <div class="empty-state" style="grid-column: 1 / -1;">
                             <div class="empty-icon">📭</div>
                             <h2>No team members registered yet</h2>
-                            <p class="subtitle" style="margin-top: 0.5rem;">If you are a team member, log in using the button above to configure your availability.</p>
+                            <p>If you are a core team member, log in using the button above to configure your availability and booking link.</p>
                         </div>
                     `;
                     return;
@@ -61,7 +65,7 @@
                 users.forEach(user => {
                     const avatarLetter = user.title ? user.title.charAt(0).toUpperCase() : user.username.charAt(0).toUpperCase();
                     const card = document.createElement('div');
-                    card.className = 'glass-card user-card';
+                    card.className = 'user-card';
                     card.innerHTML = `
                         <div>
                             <div class="user-card-header">
@@ -76,8 +80,15 @@
                             </div>
                         </div>
                         <div class="user-card-footer">
-                            <span class="timezone-badge">🌐 ${user.timezone}</span>
-                            <a href="/${user.booking_link}" class="btn btn-primary" style="padding: 0.4rem 1rem; font-size: 0.85rem;">Book Session</a>
+                            <span class="timezone-badge">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                                    <path d="M2 12h20"></path>
+                                </svg>
+                                ${user.timezone}
+                            </span>
+                            <a href="/${user.booking_link}" class="btn btn-primary" style="padding: 0.4rem 1rem; font-size: 0.85rem; font-weight: 700;">Book Session</a>
                         </div>
                     `;
                     grid.appendChild(card);
@@ -85,10 +96,11 @@
             } catch (err) {
                 console.error('Failed to load hosts:', err);
                 document.getElementById('hosts-grid').innerHTML = `
-                    <div class="empty-state" style="grid-column: 1 / -1; color: var(--error);">
-                        <div class="empty-icon">⚠️</div>
-                        <h2>Failed to connect to scheduler API</h2>
-                        <p class="subtitle" style="margin-top: 0.5rem;">Please check server logs or retry later.</p>
+                    <div class="empty-state" style="grid-column: 1 / -1; border-color: var(--error);">
+                        <div class="empty-icon" style="color: var(--error);">⚠️</div>
+                        <h2 style="color: var(--error);">Database Connection Failure</h2>
+                        <p>Could not load team schedules. Please check if the Express backend is online and retry.</p>
+                        <button onclick="loadHosts()" class="btn btn-secondary" style="margin-top: 1rem;">Retry Connection</button>
                     </div>
                 `;
             }
@@ -102,7 +114,13 @@
                     const nav = document.getElementById('nav-links');
                     nav.innerHTML = `
                         <a href="/dashboard" class="btn btn-secondary">
-                            <span>Control Dashboard</span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="7" height="9"></rect>
+                                <rect x="14" y="3" width="7" height="5"></rect>
+                                <rect x="14" y="12" width="7" height="9"></rect>
+                                <rect x="3" y="16" width="7" height="5"></rect>
+                            </svg>
+                            <span>Dashboard</span>
                         </a>
                         <a href="/logout" class="btn btn-danger">
                             <span>Logout</span>

@@ -13,44 +13,81 @@
         }
         @media(min-width: 900px) {
             .dashboard-container {
-                grid-template-columns: 350px 1fr;
+                grid-template-columns: 340px 1fr;
             }
         }
         .profile-summary {
             text-align: center;
-            border-bottom: 1px solid var(--card-border);
+            border-bottom: 1px solid var(--border);
             padding-bottom: 2rem;
             margin-bottom: 2rem;
         }
         .profile-summary .user-avatar {
-            margin: 0 auto 1rem auto;
+            margin: 0 auto 1.25rem auto;
             width: 80px;
             height: 80px;
-            font-size: 2.2rem;
+            font-size: 2.25rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
         }
         .alert-popup {
-            padding: 1rem;
-            border-radius: 8px;
-            margin-bottom: 1.5rem;
+            padding: 1rem 1.25rem;
+            border-radius: var(--radius);
+            margin-bottom: 2rem;
             display: none;
-            font-weight: 500;
+            font-weight: 600;
+            font-size: 0.9rem;
+            animation: modalSlide 0.2s ease-out;
         }
         .alert-success {
-            background: rgba(16, 185, 129, 0.1);
+            background: rgba(16, 185, 129, 0.08);
             color: var(--success);
-            border: 1px solid rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.25);
         }
         .alert-error {
-            background: rgba(239, 109, 109, 0.1);
+            background: rgba(244, 63, 94, 0.08);
             color: var(--error);
-            border: 1px solid rgba(239, 109, 109, 0.2);
+            border: 1px solid rgba(244, 63, 94, 0.25);
+        }
+        .link-display-box {
+            background: rgba(9, 9, 11, 0.6);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        .link-text {
+            font-family: monospace;
+            font-size: 0.825rem;
+            color: var(--primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .copy-btn {
+            background: var(--secondary);
+            border: 1px solid var(--border);
+            color: var(--muted-foreground);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 600;
+            transition: var(--transition);
+        }
+        .copy-btn:hover {
+            color: var(--primary);
+            background: #27272a;
         }
     </style>
 </head>
 <body>
     <header>
         <div class="logo-container">
-            <img src="https://gobitsnbytes.org/logo" alt="Bits&Bytes" style="height: 20px; width: auto;">
+            <img src="https://gobitsnbytes.org/logo" alt="Bits&Bytes Logo">
             <span class="logo-text">bits&bytes // scheduler</span>
         </div>
         <div class="nav-links">
@@ -68,13 +105,16 @@
                 <div class="profile-summary">
                     <div class="user-avatar" id="sidebar-avatar">?</div>
                     <h2 id="sidebar-username">Loading...</h2>
-                    <p id="sidebar-email" style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem;">loading email...</p>
+                    <p id="sidebar-email" style="color: var(--muted-foreground); font-size: 0.85rem; margin-top: 0.25rem;">loading email...</p>
                 </div>
                 
-                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div style="display: flex; flex-direction: column; gap: 1.25rem;">
                     <div>
-                        <span style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">PUBLIC BOOKING URL</span>
-                        <a href="#" id="public-booking-url" target="_blank" style="color: var(--secondary); font-weight: 600; text-decoration: none; font-size: 0.95rem; word-break: break-all;">Configure link first</a>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--muted-foreground); display: block; text-transform: uppercase; letter-spacing: 0.05em;">Public Booking URL</span>
+                        <div class="link-display-box">
+                            <span class="link-text" id="public-booking-url">Configure link handle first</span>
+                            <button type="button" class="copy-btn" id="copy-link-btn" onclick="copyBookingLink()">Copy</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -82,7 +122,7 @@
             <!-- Main Panel: Configuration Form -->
             <div class="glass-card">
                 <h2>Configure Availability & Booking Info</h2>
-                <p class="subtitle" style="margin-bottom: 2rem;">Setup your bio and operational timeslots. These rules determine when guests are allowed to book syncs with you.</p>
+                <p class="subtitle" style="margin-bottom: 2.5rem;">Setup your bio and weekly availability ranges. These configurations determine exactly when external guests are allowed to schedule voice conferences with you.</p>
 
                 <form id="availability-form">
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
@@ -112,14 +152,14 @@
                         </select>
                     </div>
 
-                    <h3 style="margin: 2.5rem 0 1rem 0; border-bottom: 1px solid var(--card-border); padding-bottom: 0.5rem;">Weekly Availability Hours</h3>
+                    <h3 style="margin: 3rem 0 1rem 0; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">Weekly Availability Hours</h3>
 
                     <div id="days-container">
                         <!-- Populated by JS -->
                     </div>
 
-                    <div style="margin-top: 2rem; display: flex; justify-content: flex-end;">
-                        <button type="submit" class="btn btn-primary" style="padding: 0.8rem 2rem;">Save Configuration</button>
+                    <div style="margin-top: 3rem; display: flex; justify-content: flex-end;">
+                        <button type="submit" class="btn btn-primary" style="padding: 0.75rem 2.25rem;">Save Configuration</button>
                     </div>
                 </form>
             </div>
@@ -146,7 +186,7 @@
                 </div>
                 <div class="time-slots-inputs">
                     <input type="time" id="start-${day}" class="time-input" value="09:00" disabled>
-                    <span style="color: var(--text-muted)">to</span>
+                    <span style="color: var(--muted-foreground)">to</span>
                     <input type="time" id="end-${day}" class="time-input" value="17:00" disabled>
                 </div>
             `;
@@ -174,6 +214,18 @@
             }, 5000);
         }
 
+        let fullBookingUrl = '';
+
+        function copyBookingLink() {
+            if (!fullBookingUrl) return;
+            navigator.clipboard.writeText(fullBookingUrl);
+            const copyBtn = document.getElementById('copy-link-btn');
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => {
+                copyBtn.textContent = 'Copy';
+            }, 2000);
+        }
+
         async function loadProfile() {
             try {
                 const res = await fetch('/api/user/me');
@@ -198,9 +250,10 @@
                 }
                 
                 if (user.booking_link) {
-                    const link = document.getElementById('public-booking-url');
-                    link.href = `/${user.booking_link}`;
-                    link.textContent = `${window.location.origin}/${user.booking_link}`;
+                    fullBookingUrl = `${window.location.origin}/${user.booking_link}`;
+                    const linkText = document.getElementById('public-booking-url');
+                    linkText.textContent = `${window.location.host}/${user.booking_link}`;
+                    linkText.style.color = 'var(--primary)';
                 }
                 
                 // Set availability hours
@@ -258,10 +311,9 @@
                 
                 if (res.ok) {
                     showAlert('Availability and profile successfully updated!');
-                    // Refresh link
-                    const link = document.getElementById('public-booking-url');
-                    link.href = `/${bookingLink}`;
-                    link.textContent = `${window.location.origin}/${bookingLink}`;
+                    fullBookingUrl = `${window.location.origin}/${bookingLink}`;
+                    const linkText = document.getElementById('public-booking-url');
+                    linkText.textContent = `${window.location.host}/${bookingLink}`;
                 } else {
                     const err = await res.json();
                     showAlert(err.error || 'Failed to update configuration', 'error');
