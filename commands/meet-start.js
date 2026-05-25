@@ -1,0 +1,171 @@
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
+const meetingsDb = require('../lib/meetingsDb');
+const config = require('../config');
+const { sendCommencementNotification, resolveAttendeeUserIds } = require('../lib/meetingsHelper');
+
+module.exports = {
+	data: new SlashCommandBuilder()
+		.setName('meet-start')
+		.setDescription('Manually start a scheduled or pending meeting and notify guests.')
+		.addStringOption(option => 
+			option.setName('meeting-id')
+				.setDescription('The ID of the meeting to start (optional if you are in the meeting VC)')
+				.setRequired(false)
+				.setAutocomplete(true)),
+
+	async execute(interaction) {
+		const { isStaff, getForkLeadRole } = require('../lib/auth');
+		const member = await interaction.guild.members.fetch(interaction.user.id);
+		
+		const staffCheck = isStaff(member, interaction.guild);
+		const forkLeadRole = getForkLeadRole(interaction.guild);
+		const isForkLead = forkLeadRole && member.roles.cache.has(forkLeadRole.id);
+		
+		const isAuthorized = staffCheck || isForkLead || member.permissions.has('Administrator');
+		
+		if (!isAuthorized) {
+			const unauthorizedEmbed = new EmbedBuilder()
+				.setTitle(`${config.EMOJIS.error} PROTOCOL_UNAUTHORIZED`)
+				.setDescription('Your credentials do not grant access to start meetings.')
+				.setColor(config.COLORS.error)
+				.setFooter({ text: config.BRANDING.footerText });
+
+			return await interaction.reply({ 
+				embeds: [unauthorizedEmbed], 
+				flags: [MessageFlags.Ephemeral] 
+			});
+		}
+
+		await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+		try {
+			let meetingId = interaction.options.getString('meeting-id');
+			let meeting = null;
+
+			if (meetingId) {
+				meeting = await meetingsDb.getMeeting(meetingId);
+			} else {
+				// Try to find the meeting by the voice channel the user is currently in
+				const voiceChannelId = member.voice.channelId;
+				if (voiceChannelId) {
+					meeting = await meetingsDb.findMeetingByTempChannel(voiceChannelId);
+				}
+			}
+
+			if (!meeting) {
+				return await interaction.editReply({
+					content: `${config.EMOJIS.error} Could not identify the meeting to start. Please provide a meeting ID or join the meeting voice channel.`
+				});
+			}
+
+			if (meeting.status === 'completed' || meeting.status === 'cancelled') {
+				return await interaction.editReply({
+					content: `${config.EMOJIS.error} The meeting "**${meeting.title}**" has already been completed or cancelled.`
+				});
+			}
+
+			// Update status to active
+			if (meeting.status !== 'active') {
+				await meetingsDb.updateMeetingStatus(meeting.id, 'active');
+				meeting.status = 'active';
+			}
+
+			// Send commencement notification to events channel
+			await sendCommencementNotification(interaction.guild, meeting);
+
+			// Start recording if voice meeting and recording is enabled
+			let vcChannel = null;
+			if (meeting.location_type === 'discord_vc' && meeting.temp_channel_id) {
+				vcChannel = interaction.guild.channels.cache.get(meeting.temp_channel_id);
+				if (vcChannel && process.env.RECORDING_ENABLED === 'true') {
+					const { isRecording, startRecording } = require('../lib/voiceRecorder');
+					if (!isRecording(meeting.id)) {
+						await startRecording(vcChannel, meeting.id, interaction.client).catch(err => {
+							console.error(`[MEET-START] Failed to start recording:`, err.message);
+						});
+					}
+				}
+			}
+
+			// Send DMs to missing attendees (those not currently in the Voice Channel)
+			const currentInVc = vcChannel ? new Set(vcChannel.members.keys()) : new Set();
+			const attendeeIds = await resolveAttendeeUserIds(interaction.guild, meeting.attendees);
+			// Include creator
+			attendeeIds.add(meeting.creator_id);
+
+			const vcLink = vcChannel ? `https://discord.com/channels/${interaction.guild.id}/${vcChannel.id}` : '';
+			let pingCount = 0;
+
+			for (const userId of attendeeIds) {
+				if (!currentInVc.has(userId)) {
+					try {
+						const attendeeMember = await interaction.guild.members.fetch(userId).catch(() => null);
+						if (attendeeMember && !attendeeMember.user.bot) {
+							const dmEmbed = new EmbedBuilder()
+								.setTitle(`🚨 MEETING_START_ALERT // JOIN_NOW`)
+								.setDescription(`The meeting "**${meeting.title}**" has been started manually. You are expected to join.`)
+								.setColor(config.COLORS.primary)
+								.setTimestamp()
+								.setFooter({ text: config.BRANDING.footerText });
+
+							if (vcLink) {
+								dmEmbed.addFields({ name: '🔊 JOIN VOICE CHANNEL', value: `[Click here to connect](${vcLink})`, inline: false });
+							}
+
+							await attendeeMember.send({ embeds: [dmEmbed] }).catch(() => {});
+							pingCount++;
+						}
+					} catch (dmErr) {
+						console.warn(`[MEET-START] Could not send DM to user ${userId}:`, dmErr.message);
+					}
+				}
+			}
+
+			await interaction.editReply({
+				content: `✅ Meeting "**${meeting.title}**" started successfully. Notified ${pingCount} missing attendees.`
+			});
+
+		} catch (error) {
+			console.error('[MEET-START-ERROR]', error);
+			await interaction.editReply({
+				content: `${config.EMOJIS.error} SYSTEM_FAILURE: Unable to start meeting.`
+			});
+		}
+	},
+
+	async autocomplete(interaction) {
+		try {
+			// Suggest upcoming/scheduled/pending meetings
+			const db = require('../lib/db');
+			// We can query all meetings in 'scheduled' or 'pending' status
+			const meetings = await new Promise((resolve, reject) => {
+				db.all(
+					`SELECT id, title, scheduled_time FROM meetings WHERE status IN ('scheduled', 'pending') ORDER BY scheduled_time ASC LIMIT 25`,
+					[],
+					(err, rows) => {
+						if (err) reject(err);
+						else resolve(rows || []);
+					}
+				);
+			});
+
+			const choices = meetings.map(m => {
+				const timeStr = new Date(m.scheduled_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+				return {
+					name: `${m.title.substring(0, 50)} (${timeStr})`,
+					value: m.id
+				};
+			});
+
+			const focusedValue = interaction.options.getFocused() || '';
+			const filtered = choices.filter(choice => 
+				choice.name.toLowerCase().includes(focusedValue.toLowerCase()) ||
+				choice.value.includes(focusedValue)
+			);
+
+			await interaction.respond(filtered.slice(0, 25)).catch(() => {});
+		} catch (err) {
+			console.error('[MEET-START-AUTOCOMPLETE-ERROR]', err);
+		}
+	}
+};

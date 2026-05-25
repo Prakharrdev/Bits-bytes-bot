@@ -244,6 +244,12 @@
                         <button type="button" class="btn btn-secondary duration-btn" data-duration="45" style="flex: 1; padding: 0.4rem 0.5rem; font-size: 0.85rem;">45m</button>
                     </div>
                 </div>
+
+                <div class="instant-meet-selector" style="margin-bottom: 1.5rem;">
+                    <button type="button" class="btn" id="request-instant-btn" style="width: 100%; background-color: #97192c; color: #fafafa; border: 1px solid #97192c; font-weight: 700; font-size: 0.875rem; padding: 0.6rem; border-radius: var(--radius); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: var(--transition);">
+                        <span>⚡ Request Instant Meet</span>
+                    </button>
+                </div>
                 
                 <div style="margin-top: auto; display: flex; flex-direction: column; gap: 0.75rem;">
                     <div class="detail-item">
@@ -683,6 +689,16 @@
             }
         }
 
+        let isInstantMeet = false;
+
+        document.getElementById('request-instant-btn').addEventListener('click', () => {
+            isInstantMeet = true;
+            // Set arbitrary date/time for form validation if needed
+            selectedDateStr = new Date().toISOString().split('T')[0];
+            selectedTimeSlot = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+            openBookingModal();
+        });
+
         function openBookingModal() {
             const modal = document.getElementById('booking-modal');
             const label = document.getElementById('selected-datetime-label');
@@ -690,12 +706,17 @@
             const dateObj = new Date(selectedDateStr);
             const dateFormatted = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
             
-            label.textContent = `${dateFormatted} at ${selectedTimeSlot} (${primaryHost.timezone})`;
+            if (isInstantMeet) {
+                label.textContent = `⚡ Instant Sync Session (Starts immediately upon host acceptance)`;
+            } else {
+                label.textContent = `${dateFormatted} at ${selectedTimeSlot} (${primaryHost.timezone})`;
+            }
             modal.style.display = 'flex';
         }
 
         document.getElementById('close-modal-btn').addEventListener('click', () => {
             document.getElementById('booking-modal').style.display = 'none';
+            isInstantMeet = false;
         });
 
         document.getElementById('prev-month').addEventListener('click', () => {
@@ -742,11 +763,14 @@
                         notes,
                         duration: selectedDuration,
                         additionalHosts: additional,
-                        inviteWholeFork
+                        inviteWholeFork,
+                        instant: isInstantMeet
                     })
                 });
                 
                 if (res.ok) {
+                    const resultData = await res.json();
+                    
                     document.getElementById('booking-modal').style.display = 'none';
                     document.getElementById('booking-flow').style.display = 'none';
                     
@@ -756,9 +780,21 @@
                     document.getElementById('success-hosts-names').textContent = hostNames;
                     document.getElementById('success-duration').textContent = `${selectedDuration} minutes`;
                     
-                    const dateObj = new Date(selectedDateStr);
-                    const dateFormatted = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-                    document.getElementById('success-time').textContent = `${dateFormatted} @ ${selectedTimeSlot} (${primaryHost.timezone})`;
+                    if (isInstantMeet) {
+                        document.getElementById('success-time').textContent = `Pending Host Acceptance (5-minute expiry)`;
+                        document.querySelector('.success-container h2').textContent = `Instant Sync Session Requested!`;
+                        document.querySelector('.success-container .subtitle').textContent = `Your request has been dispatched to the host's Discord DM. If accepted, you will receive a calendar invite and a Discord VC will open.`;
+                        document.querySelector('.notice-card').innerHTML = `
+                            <div style="font-weight: 700; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.5rem; color: #ffae24;">
+                                ⚡ Direct Host DM Alert
+                            </div>
+                            The host has received a direct notification in Discord. Once they click 'Accept', the voice channel will open immediately.
+                        `;
+                    } else {
+                        const dateObj = new Date(selectedDateStr);
+                        const dateFormatted = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+                        document.getElementById('success-time').textContent = `${dateFormatted} @ ${selectedTimeSlot} (${primaryHost.timezone})`;
+                    }
                     
                     if (notes) {
                         document.getElementById('success-notes').textContent = notes;
@@ -787,7 +823,37 @@
             }
         });
 
+        async function checkUserSession() {
+            try {
+                const res = await fetch('/api/user/me');
+                if (res.ok) {
+                    const userData = await res.json();
+                    if (userData) {
+                        const nameInput = document.getElementById('guest-name');
+                        const emailInput = document.getElementById('guest-email');
+                        if (nameInput) {
+                            nameInput.value = userData.title || userData.username || '';
+                        }
+                        if (emailInput && userData.email) {
+                            emailInput.value = userData.email;
+                            emailInput.readOnly = true;
+                        }
+                        
+                        // Add a visual indicator
+                        const banner = document.createElement('div');
+                        banner.style.cssText = 'background: rgba(0, 242, 255, 0.08); border: 1px solid rgba(0, 242, 255, 0.15); border-radius: var(--radius); padding: 0.75rem 1rem; font-size: 0.85rem; color: #ff7a1b; margin-bottom: 1rem; text-align: left;';
+                        banner.innerHTML = `🟢 Booking as internal team member <strong>@${userData.username}</strong> (${userData.email || 'no email registered'})`;
+                        const form = document.getElementById('booking-form');
+                        form.insertBefore(banner, form.firstChild);
+                    }
+                }
+            } catch (err) {
+                console.log('Session check failed or user not logged in:', err);
+            }
+        }
+
         loadHostDetails();
+        checkUserSession();
     </script>
 </body>
 </html>

@@ -132,6 +132,15 @@ async function handleBookingCreated(client, payload) {
 	// Fetch created meeting with attendees populated
 	const createdMeeting = await meetingsDb.getMeeting(id);
 
+	let vcLink = '';
+	if (locationType === 'discord_vc') {
+		const vcChannel = await meetingsHelper.createMeetingVoiceChannel(guild, createdMeeting);
+		if (vcChannel) {
+			createdMeeting.temp_channel_id = vcChannel.id;
+			vcLink = `https://discord.com/channels/${guild.id}/${vcChannel.id}`;
+		}
+	}
+
 	// Format time in IST
 	const istTimeString = new Date(startTime).toLocaleString('en-US', {
 		timeZone: 'Asia/Kolkata',
@@ -154,7 +163,7 @@ async function handleBookingCreated(client, payload) {
 			.addFields(
 				{ name: '📋 TITLE', value: title, inline: false },
 				{ name: '📅 SCHEDULED TIME (IST)', value: `\`${istTimeString}\` (<t:${Math.floor(startTime / 1000)}:F>)`, inline: false },
-				{ name: '🌐 LOCATION', value: locationType === 'discord_vc' ? 'Discord Temporary VC' : locationDetails, inline: true },
+				{ name: '🌐 LOCATION', value: locationType === 'discord_vc' ? (vcLink ? `🔊 [Join Voice Channel](${vcLink})` : 'Discord Temporary VC') : locationDetails, inline: true },
 				{ name: '👥 INVITEES', value: inviteesDisplay.join(', ') || 'None', inline: true }
 			)
 			.setColor(config.COLORS.success)

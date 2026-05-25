@@ -88,7 +88,8 @@ module.exports = {
 		'fork-badges': false,      // Public - shows achievements
 		'meet-email': true,        // Ephemeral - email registration
 		'meet-schedule': true,     // Ephemeral - meeting scheduler
-		'meet-transcript': true    // Ephemeral - transcript retrieval
+		'meet-transcript': true,   // Ephemeral - transcript retrieval
+		'meet-start': true         // Ephemeral - start meeting manually
 	},
 
 	// 🎙️ MEETING RECORDING & TRANSCRIPTION

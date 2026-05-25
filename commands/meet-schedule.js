@@ -226,21 +226,22 @@ module.exports = {
 
 			let vcLink = '';
 			
-			// If scheduled within 5 minutes (or instantly), provision VC and send DMs immediately
-			if (isInstant) {
-				const createdMeeting = await meetingsDb.getMeeting(id);
-				if (createdMeeting) {
-					if (locationType === 'discord_vc') {
-						const vcChannel = await createMeetingVoiceChannel(guild, createdMeeting);
-						if (vcChannel) {
-							vcLink = `https://discord.com/channels/${guild.id}/${vcChannel.id}`;
-						}
-					}
-					// Send DM notification to attendees immediately
-					await sendMeetingDMs(guild, createdMeeting, vcLink);
-					// Record that the 5-minute reminder has been sent so the scheduler doesn't run it again
-					await meetingsDb.recordReminderSent(id, '5m');
+			// Provision Voice Channel immediately for ALL voice meetings
+			const createdMeeting = await meetingsDb.getMeeting(id);
+			if (createdMeeting && locationType === 'discord_vc') {
+				const vcChannel = await createMeetingVoiceChannel(guild, createdMeeting);
+				if (vcChannel) {
+					createdMeeting.temp_channel_id = vcChannel.id;
+					vcLink = `https://discord.com/channels/${guild.id}/${vcChannel.id}`;
 				}
+			}
+			
+			// If scheduled within 5 minutes (or instantly), send DMs immediately
+			if (isInstant && createdMeeting) {
+				// Send DM notification to attendees immediately
+				await sendMeetingDMs(guild, createdMeeting, vcLink);
+				// Record that the 5-minute reminder has been sent so the scheduler doesn't run it again
+				await meetingsDb.recordReminderSent(id, '5m');
 			}
 
 			const istTimeString = new Date(scheduledTime).toLocaleString('en-US', {

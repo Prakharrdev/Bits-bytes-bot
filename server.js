@@ -199,7 +199,8 @@ function startWebServer(client) {
             res.cookie('session_id', sessionId, { 
                 httpOnly: true, 
                 secure: process.env.NODE_ENV === 'production',
-                path: '/'
+                path: '/',
+                maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
             });
             res.redirect('/dashboard');
 
@@ -477,10 +478,16 @@ function startWebServer(client) {
 
     app.post('/api/book/:bookingLink', async (req, res) => {
         const { bookingLink } = req.params;
-        const { date, slot, name, email, title, description, notes, duration, additionalHosts, inviteWholeFork } = req.body;
+        const { date, slot, name, email, title, description, notes, duration, additionalHosts, inviteWholeFork, instant } = req.body;
 
-        if (!date || !slot || !name || !email || !title) {
-            return res.status(400).json({ error: 'All fields (date, slot, name, email, title) are required.' });
+        if (instant) {
+            if (!name || !email || !title) {
+                return res.status(400).json({ error: 'Full name, email address, and meeting title are required for instant meetings.' });
+            }
+        } else {
+            if (!date || !slot || !name || !email || !title) {
+                return res.status(400).json({ error: 'All fields (date, slot, name, email, title) are required.' });
+            }
         }
 
         const selectedDuration = parseInt(duration || 30, 10);
@@ -491,13 +498,19 @@ function startWebServer(client) {
                 return res.status(404).json({ error: 'Primary host not found.' });
             }
 
-            const offset = OFFSETS[primaryHost.timezone] || '+05:30';
-            const slotStartISO = `${date}T${slot}:00${offset}`;
-            const startTimeMs = Date.parse(slotStartISO);
-            const endTimeMs = startTimeMs + selectedDuration * 60 * 1000;
+            let startTimeMs, endTimeMs;
+            if (instant) {
+                startTimeMs = Date.now();
+                endTimeMs = startTimeMs + selectedDuration * 60 * 1000;
+            } else {
+                const offset = OFFSETS[primaryHost.timezone] || '+05:30';
+                const slotStartISO = `${date}T${slot}:00${offset}`;
+                startTimeMs = Date.parse(slotStartISO);
+                endTimeMs = startTimeMs + selectedDuration * 60 * 1000;
 
-            if (startTimeMs <= Date.now()) {
-                return res.status(400).json({ error: 'Cannot book a slot in the past.' });
+                if (startTimeMs <= Date.now()) {
+                    return res.status(400).json({ error: 'Cannot book a slot in the past.' });
+                }
             }
 
             // Resolve all hosts (primary and additional)
@@ -513,18 +526,20 @@ function startWebServer(client) {
             }
 
             // Check if slot is still available for ALL hosts
-            for (const host of allHosts) {
-                const existingMeeting = await db.get(`
-                    SELECT 1 FROM meetings m
-                    LEFT JOIN meeting_attendees ma ON m.id = ma.meeting_id
-                    WHERE (m.creator_id = ? OR ma.discord_id = ?)
-                      AND m.status != 'cancelled'
-                      AND m.scheduled_time < ? 
-                      AND (COALESCE(m.end_time, m.scheduled_time + 1800000) > ?)
-                `, [host.discord_id, host.discord_id, endTimeMs, startTimeMs]);
+            if (!instant) {
+                for (const host of allHosts) {
+                    const existingMeeting = await db.get(`
+                        SELECT 1 FROM meetings m
+                        LEFT JOIN meeting_attendees ma ON m.id = ma.meeting_id
+                        WHERE (m.creator_id = ? OR ma.discord_id = ?)
+                          AND m.status != 'cancelled'
+                          AND m.scheduled_time < ? 
+                          AND (COALESCE(m.end_time, m.scheduled_time + 1800000) > ?)
+                    `, [host.discord_id, host.discord_id, endTimeMs, startTimeMs]);
 
-                if (existingMeeting) {
-                    return res.status(400).json({ error: `The slot is no longer available for ${host.title || host.username}.` });
+                    if (existingMeeting) {
+                        return res.status(400).json({ error: `The slot is no longer available for ${host.title || host.username}.` });
+                    }
                 }
             }
 
@@ -532,43 +547,42 @@ function startWebServer(client) {
             const id = `meet_calweb_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             
             // Push booking to Cal.com using duration-based event type routing.
-            // This creates a Google Calendar event for visibility without
-            // affecting anyone else's availability (per-person local DB is used
-            // for slot checking, not the shared calendar).
             let calcomBookingId = null;
-            const calcomEventTypeId = getCalcomEventTypeId(duration);
-            if (calcomEventTypeId && process.env.CALCOM_API_KEY) {
-                try {
-                    const calcom = require('./lib/calcom');
-                    // Build guest list: all additional hosts + booker
-                    const guestEmails = allHosts
-                        .filter(h => h.discord_id !== primaryHost.discord_id && h.email)
-                        .map(h => h.email);
-                    const bookingBody = {
-                        eventTypeId: parseInt(calcomEventTypeId, 10),
-                        start: new Date(startTimeMs).toISOString(),
-                        timeZone: primaryHost.timezone || 'Asia/Kolkata',
-                        language: 'en',
-                        metadata: { discord_meeting_id: id },
-                        attendee: {
-                            name: name,
-                            email: email.trim().toLowerCase(),
-                            timeZone: primaryHost.timezone || 'Asia/Kolkata'
-                        },
-                        ...(guestEmails.length > 0 && {
-                            guests: guestEmails
-                        }),
-                        bookingFieldsResponses: {
-                            notes: [notes, description].filter(Boolean).join('\n\n') || ''
+            if (!instant) {
+                const calcomEventTypeId = getCalcomEventTypeId(duration);
+                if (calcomEventTypeId && process.env.CALCOM_API_KEY) {
+                    try {
+                        const calcom = require('./lib/calcom');
+                        // Build guest list: all additional hosts + booker
+                        const guestEmails = allHosts
+                            .filter(h => h.discord_id !== primaryHost.discord_id && h.email)
+                            .map(h => h.email);
+                        const bookingBody = {
+                            eventTypeId: parseInt(calcomEventTypeId, 10),
+                            start: new Date(startTimeMs).toISOString(),
+                            timeZone: primaryHost.timezone || 'Asia/Kolkata',
+                            language: 'en',
+                            metadata: { discord_meeting_id: id },
+                            attendee: {
+                                name: name,
+                                email: email.trim().toLowerCase(),
+                                timeZone: primaryHost.timezone || 'Asia/Kolkata'
+                            },
+                            ...(guestEmails.length > 0 && {
+                                guests: guestEmails
+                            }),
+                            bookingFieldsResponses: {
+                                notes: [notes, description].filter(Boolean).join('\n\n') || ''
+                            }
+                        };
+                        const bookingResponse = await calcom.createBooking(bookingBody);
+                        if (bookingResponse && (bookingResponse.uid || bookingResponse.id)) {
+                            calcomBookingId = String(bookingResponse.uid || bookingResponse.id);
+                            console.log(`[CALCOM] Booking created: ${calcomBookingId} (${duration}min event type ${calcomEventTypeId})`);
                         }
-                    };
-                    const bookingResponse = await calcom.createBooking(bookingBody);
-                    if (bookingResponse && (bookingResponse.uid || bookingResponse.id)) {
-                        calcomBookingId = String(bookingResponse.uid || bookingResponse.id);
-                        console.log(`[CALCOM] Booking created: ${calcomBookingId} (${duration}min event type ${calcomEventTypeId})`);
+                    } catch (calcomErr) {
+                        console.warn('[CALCOM] Web booking sync failed (non-fatal):', calcomErr.message);
                     }
-                } catch (calcomErr) {
-                    console.warn('[CALCOM] Web booking sync failed (non-fatal):', calcomErr.message);
                 }
             }
 
@@ -588,7 +602,7 @@ function startWebServer(client) {
                 locationType: 'discord_vc',
                 locationDetails: '',
                 creatorId: primaryHost.discord_id,
-                status: 'scheduled',
+                status: instant ? 'pending' : 'scheduled',
                 endTime: endTimeMs,
                 externalEmails: [email.trim().toLowerCase()],
                 calcomBookingId,
@@ -612,50 +626,146 @@ function startWebServer(client) {
             // Announce to events channel if bot client is logged in
             const guild = client.guilds.cache.first();
             if (guild) {
-                const eventsChannel = await getEventsChannel(guild);
-                if (eventsChannel) {
-                    const istTimeString = new Date(startTimeMs).toLocaleString('en-US', {
-                        timeZone: 'Asia/Kolkata',
-                        hour12: true,
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric'
-                    }) + ' IST';
+                if (instant) {
+                    const hostMember = await guild.members.fetch(primaryHost.discord_id).catch(() => null);
+                    if (hostMember) {
+                        const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+                        const row = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`accept_instant_${id}`)
+                                .setLabel('Accept Sync Request')
+                                .setStyle(ButtonStyle.Success)
+                                .setEmoji('🟢'),
+                            new ButtonBuilder()
+                                .setCustomId(`decline_instant_${id}`)
+                                .setLabel('Decline')
+                                .setStyle(ButtonStyle.Danger)
+                                .setEmoji('🔴')
+                        );
+                        
+                        const dmEmbed = new EmbedBuilder()
+                            .setTitle(`⚡ INSTANT_MEET_REQUEST`)
+                            .setDescription(`**${name}** (\`${email}\`) is requesting an instant sync session with you.`)
+                            .addFields(
+                                { name: '📋 TITLE', value: newMeeting.title, inline: false },
+                                { name: '⏱️ DURATION', value: `${selectedDuration} minutes`, inline: true }
+                            )
+                            .setColor('#ff7a1b')
+                            .setTimestamp()
+                            .setFooter({ text: 'Accept within 5 minutes or it will expire.' });
+                        
+                        if (description) {
+                            dmEmbed.addFields({ name: '📝 DESCRIPTION', value: description, inline: false });
+                        }
+                        if (notes) {
+                            dmEmbed.addFields({ name: '🗒️ NOTES', value: notes, inline: false });
+                        }
 
-                    // Construct host mentions
-                    const hostMentions = allHosts.map(h => `<@${h.discord_id}>`).join(', ');
+                        const dmMessage = await hostMember.send({
+                            content: `🔔 **Instant Meeting Request**:`,
+                            embeds: [dmEmbed],
+                            components: [row]
+                        }).catch(() => null);
 
-                    const embed = new EmbedBuilder()
-                        .setTitle(`📅 SCHEDULER // NEW_BOOKING`)
-                        .setDescription(`A meeting was booked via cal.gobitsnbytes.org.`)
-                        .addFields(
-                            { name: '📋 TITLE', value: newMeeting.title, inline: false },
-                            { name: '📅 TIME (IST)', value: `\`${istTimeString}\` (<t:${Math.floor(startTimeMs / 1000)}:F>)`, inline: false },
-                            { name: '🌐 LOCATION', value: 'Discord Temporary Voice Channel', inline: true },
-                            { name: '👥 HOSTS', value: hostMentions, inline: true },
-                            { name: '✉️ BOOKER', value: `\`${name} (${email})\``, inline: true }
-                        )
-                        .setColor('#FFFFFF')
-                        .setTimestamp()
-                        .setFooter({ text: config.BRANDING.footerText });
+                        if (!dmMessage) {
+                            // Clean up from DB
+                            await db.run(`DELETE FROM meetings WHERE id = ?`, [id]);
+                            await db.run(`DELETE FROM meeting_attendees WHERE meeting_id = ?`, [id]);
+                            return res.status(400).json({ error: 'Could not send DM to host. Ensure the host allows direct messages from server members.' });
+                        }
 
-                    if (finalDescription) {
-                        embed.addFields({ name: '📝 DESCRIPTION', value: finalDescription, inline: false });
+                        // Expire after 5 minutes
+                        setTimeout(async () => {
+                            try {
+                                const currentMeeting = await meetingsDb.getMeeting(id);
+                                if (currentMeeting && currentMeeting.status === 'pending') {
+                                    await meetingsDb.updateMeetingStatus(id, 'cancelled');
+                                    
+                                    const disabledRow = new ActionRowBuilder().addComponents(
+                                        new ButtonBuilder()
+                                            .setCustomId(`accept_instant_${id}`)
+                                            .setLabel('Request Expired')
+                                            .setStyle(ButtonStyle.Secondary)
+                                            .setDisabled(true),
+                                        new ButtonBuilder()
+                                            .setCustomId(`decline_instant_${id}`)
+                                            .setLabel('Decline')
+                                            .setStyle(ButtonStyle.Danger)
+                                            .setDisabled(true)
+                                    );
+                                    
+                                    const expiredEmbed = EmbedBuilder.from(dmEmbed)
+                                        .setTitle(`⚡ INSTANT_MEET_REQUEST // EXPIRED`)
+                                        .setColor('#f43f5e')
+                                        .setFooter({ text: 'This request has expired (5-minute timeout).' });
+
+                                    await dmMessage.edit({
+                                        content: `❌ **Instant Meeting Request Expired**:`,
+                                        embeds: [expiredEmbed],
+                                        components: [disabledRow]
+                                    }).catch(() => {});
+                                }
+                            } catch (expireErr) {
+                                console.error('[INSTANT_EXPIRE_ERROR]', expireErr);
+                            }
+                        }, 5 * 60 * 1000);
+
+                        return res.json({ success: true, pending: true });
+                    } else {
+                        return res.status(400).json({ error: 'Host member could not be resolved in the guild.' });
                     }
+                } else {
+                    // Provision VC immediately for scheduled meetings!
+                    const createdMeeting = await meetingsDb.getMeeting(id);
+                    if (createdMeeting) {
+                        const vcChannel = await meetingsHelper.createMeetingVoiceChannel(guild, createdMeeting);
+                        if (vcChannel) {
+                            createdMeeting.temp_channel_id = vcChannel.id;
+                        }
+                        
+                        const eventsChannel = await getEventsChannel(guild);
+                        if (eventsChannel) {
+                            const istTimeString = new Date(startTimeMs).toLocaleString('en-US', {
+                                timeZone: 'Asia/Kolkata',
+                                hour12: true,
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric'
+                            }) + ' IST';
 
-                    const leadMentions = allHosts.map(h => `<@${h.discord_id}>`).join(' ');
-                    await eventsChannel.send({
-                        content: `🔔 **New Portal Booking**: ${leadMentions}`,
-                        embeds: [embed]
-                    });
-                }
+                            const hostMentions = allHosts.map(h => `<@${h.discord_id}>`).join(', ');
+                            const vcLink = vcChannel ? `https://discord.com/channels/${guild.id}/${vcChannel.id}` : 'Discord Temporary VC';
 
-                // Send email invite
-                const createdMeeting = await meetingsDb.getMeeting(id);
-                if (createdMeeting) {
-                    await meetingsHelper.sendMeetingEmails(guild, createdMeeting, 'invite');
+                            const embed = new EmbedBuilder()
+                                .setTitle(`📅 SCHEDULER // NEW_BOOKING`)
+                                .setDescription(`A meeting was booked via cal.gobitsnbytes.org.`)
+                                .addFields(
+                                    { name: '📋 TITLE', value: newMeeting.title, inline: false },
+                                    { name: '📅 TIME (IST)', value: `\`${istTimeString}\` (<t:${Math.floor(startTimeMs / 1000)}:F>)`, inline: false },
+                                    { name: '🌐 LOCATION', value: vcChannel ? `🔊 [Join Voice Channel](${vcLink})` : 'Discord Temporary Voice Channel', inline: true },
+                                    { name: '👥 HOSTS', value: hostMentions, inline: true },
+                                    { name: '✉️ BOOKER', value: `\`${name} (${email})\``, inline: true }
+                                )
+                                .setColor('#FFFFFF')
+                                .setTimestamp()
+                                .setFooter({ text: config.BRANDING.footerText });
+
+                            if (finalDescription) {
+                                embed.addFields({ name: '📝 DESCRIPTION', value: finalDescription, inline: false });
+                            }
+
+                            const leadMentions = allHosts.map(h => `<@${h.discord_id}>`).join(' ');
+                            await eventsChannel.send({
+                                content: `🔔 **New Portal Booking**: ${leadMentions}`,
+                                embeds: [embed]
+                            });
+                        }
+
+                        // Send email invite
+                        await meetingsHelper.sendMeetingEmails(guild, createdMeeting, 'invite');
+                    }
                 }
             }
 
@@ -761,6 +871,12 @@ function startWebServer(client) {
 
                 const createdMeeting = await meetingsDb.getMeeting(id);
                 if (createdMeeting) {
+                    if (locationType === 'discord_vc') {
+                        const vcChannel = await meetingsHelper.createMeetingVoiceChannel(guild, createdMeeting);
+                        if (vcChannel) {
+                            createdMeeting.temp_channel_id = vcChannel.id;
+                        }
+                    }
                     await meetingsHelper.sendMeetingEmails(guild, createdMeeting, 'invite');
                 }
             } else if (triggerEvent === 'BOOKING_CANCELLED') {

@@ -17,8 +17,27 @@ module.exports = {
 						handleUserJoin(meetingId, newState.member);
 					}
 				}
+				
+				// Handle auto-commencement when 2+ humans are present
+				const meeting = await meetingsDb.findMeetingByTempChannel(newChannelId);
+				if (meeting && (meeting.status === 'scheduled' || meeting.status === 'pending')) {
+					const newChannel = newState.channel;
+					if (newChannel) {
+						const humanMembers = newChannel.members.filter(m => !m.user.bot);
+						if (humanMembers.size >= 2) {
+							// Transition status to active
+							await meetingsDb.updateMeetingStatus(meeting.id, 'active');
+							meeting.status = 'active';
+
+							// Send commencement notification
+							const { sendCommencementNotification } = require('../lib/meetingsHelper');
+							await sendCommencementNotification(newState.guild, meeting);
+							console.log(`[MEETING] Meeting "${meeting.title}" (${meeting.id}) auto-commenced because 2+ human users joined the VC.`);
+						}
+					}
+				}
 			} catch (err) {
-				console.error('[MEETING] Error handling voice join for recording:', err.message);
+				console.error('[MEETING] Error handling voice join for recording / auto-commencement:', err.message);
 			}
 		}
 
