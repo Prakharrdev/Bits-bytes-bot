@@ -102,7 +102,18 @@ function startWebServer(client) {
             redirectUri = `${protocol}://${host}/auth/callback`;
         }
 
-        const discordAuthUrl = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=identify+email`;
+        // Support returning to a specific page after auth (e.g. booking page)
+        if (req.query.redirect) {
+            res.cookie('auth_return_to', req.query.redirect, { 
+                maxAge: 10 * 60 * 1000, // 10 minutes
+                httpOnly: true,
+                secure: req.secure || req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/'
+            });
+        }
+
+        const discordAuthUrl = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=identify+email+guilds.join`;
         res.redirect(discordAuthUrl);
     });
 
@@ -152,34 +163,37 @@ function startWebServer(client) {
 
             const userData = await userResponse.json();
 
-            // Restriction check: Must belong to target guild 1480617556292272260 and hold the "contributor" role
+            // Check/Add user to target guild and verify contributor status
+            let hasContributorRole = false;
+            let cityRoleName = null;
+            let cityRoleId = null;
             try {
-                const targetGuildId = '1480617556292272260';
+                const targetGuildId = process.env.GUILD_ID || '1480617556292272260';
                 const targetGuild = client.guilds.cache.get(targetGuildId) || await client.guilds.fetch(targetGuildId).catch(() => null);
                 if (!targetGuild) {
                     console.error(`[AUTH_ERROR] Target guild ${targetGuildId} could not be resolved.`);
                     return res.status(500).send('Authentication failed: Target Discord server could not be resolved.');
                 }
-                const targetMember = await targetGuild.members.fetch(userData.id).catch(() => null);
-                const hasContributorRole = targetMember && targetMember.roles.cache.some(r => r.name.toLowerCase() === 'contributor');
-                if (!hasContributorRole) {
-                    return res.status(403).send('Authentication Denied: You must be a member of the Bits&Bytes Discord server and hold the "contributor" role to log in.');
-                }
-            } catch (authRestrictErr) {
-                console.error('[AUTH_RESTRICT_ERROR]', authRestrictErr);
-                return res.status(500).send('Authentication failed: Server check error.');
-            }
 
-            // Resolve Discord city role
-            let cityRoleName = null;
-            let cityRoleId = null;
-            try {
-                const guildId = process.env.GUILD_ID;
-                const guild = client.guilds.cache.get(guildId);
-                if (guild) {
-                    await guild.members.fetch().catch(() => {});
-                    const member = guild.members.cache.get(userData.id);
-                    if (member) {
+                // Try to fetch member; if they aren't on the server, add them automatically!
+                let targetMember = await targetGuild.members.fetch(userData.id).catch(() => null);
+                if (!targetMember) {
+                    console.log(`[AUTH] Adding guest user ${userData.username} (${userData.id}) to guild...`);
+                    await targetGuild.members.add(userData.id, {
+                        accessToken: accessToken
+                    }).catch(joinErr => {
+                        console.error('[AUTH_JOIN_ERROR] Failed to add user to guild:', joinErr.message);
+                    });
+                    
+                    // Fetch again to see if they were successfully added
+                    targetMember = await targetGuild.members.fetch(userData.id).catch(() => null);
+                }
+
+                if (targetMember) {
+                    hasContributorRole = targetMember.roles.cache.some(r => r.name.toLowerCase() === 'contributor');
+
+                    // Resolve Discord city role for contributor
+                    try {
                         const notion = require('./lib/notion');
                         const forks = await notion.getForks().catch(() => []);
                         const activeCities = forks
@@ -187,7 +201,7 @@ function startWebServer(client) {
                             .map(f => notion.getCityName(f))
                             .filter(Boolean);
 
-                        const foundCityRole = member.roles.cache.find(r => 
+                        const foundCityRole = targetMember.roles.cache.find(r => 
                             activeCities.some(city => city.toLowerCase() === r.name.toLowerCase())
                         );
 
@@ -195,15 +209,12 @@ function startWebServer(client) {
                             cityRoleName = foundCityRole.name;
                             cityRoleId = foundCityRole.id;
                         }
+                    } catch (roleErr) {
+                        console.warn('[AUTH_CALLBACK] Failed to resolve member city role:', roleErr.message);
                     }
                 }
-            } catch (roleErr) {
-                console.warn('[AUTH_CALLBACK] Failed to resolve member city role:', roleErr.message);
-            }
-
-            let defaultTitle = userData.username;
-            if (cityRoleName) {
-                defaultTitle = `Fork ${cityRoleName}`;
+            } catch (authRestrictErr) {
+                console.error('[AUTH_RESTRICT_ERROR] Target guild resolution failed:', authRestrictErr);
             }
 
             // Create session
@@ -224,23 +235,34 @@ function startWebServer(client) {
                 console.error('[AUTH_CALLBACK] Failed to save session to DB:', err.message);
             });
 
-            // Write record or update username in user_availability table if missing
-            const existingUser = await db.get(`SELECT 1 FROM user_availability WHERE discord_id = ?`, [userData.id]);
-            if (!existingUser) {
-                await db.run(
-                    `INSERT INTO user_availability (discord_id, username, email, timezone, weekly_hours, booking_link, title, description, associated_role_id)
-                     VALUES (?, ?, ?, 'Asia/Kolkata', '{"monday":[],"tuesday":[],"wednesday":[],"thursday":[],"friday":[],"saturday":[],"sunday":[]}', ?, ?, '', ?)`,
-                    [userData.id, userData.username, userData.email || null, `link_${userData.username.toLowerCase().substring(0, 10)}`, defaultTitle, cityRoleId || null]
-                );
-            } else {
-                // Update email and associated_role_id if it changed
-                await db.run(
-                    `UPDATE user_availability 
-                     SET email = ?, associated_role_id = ? 
-                     WHERE discord_id = ?`,
-                    [userData.email || null, cityRoleId || null, userData.id]
-                );
+            // Write record or update username in user_availability table ONLY if they are a contributor (host)
+            if (hasContributorRole) {
+                let defaultTitle = userData.username;
+                if (cityRoleName) {
+                    defaultTitle = `Fork ${cityRoleName}`;
+                }
+
+                const existingUser = await db.get(`SELECT 1 FROM user_availability WHERE discord_id = ?`, [userData.id]);
+                if (!existingUser) {
+                    await db.run(
+                        `INSERT INTO user_availability (discord_id, username, email, timezone, weekly_hours, booking_link, title, description, associated_role_id)
+                         VALUES (?, ?, ?, 'Asia/Kolkata', '{"monday":[],"tuesday":[],"wednesday":[],"thursday":[],"friday":[],"saturday":[],"sunday":[]}', ?, ?, '', ?)`,
+                        [userData.id, userData.username, userData.email || null, `link_${userData.username.toLowerCase().substring(0, 10)}`, defaultTitle, cityRoleId || null]
+                    );
+                } else {
+                    // Update email and associated_role_id if it changed
+                    await db.run(
+                        `UPDATE user_availability 
+                         SET email = ?, associated_role_id = ? 
+                         WHERE discord_id = ?`,
+                        [userData.email || null, cityRoleId || null, userData.id]
+                    );
+                }
             }
+
+            // Retrieve return destination
+            const returnTo = req.cookies.auth_return_to || '/dashboard';
+            res.clearCookie('auth_return_to');
 
             // Set cookie
             res.cookie('session_id', sessionId, { 
@@ -250,7 +272,13 @@ function startWebServer(client) {
                 path: '/',
                 maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
             });
-            res.redirect('/dashboard');
+
+            // Redirect appropriately
+            if (!hasContributorRole && returnTo === '/dashboard') {
+                res.redirect('/');
+            } else {
+                res.redirect(returnTo);
+            }
 
         } catch (error) {
             console.error('[AUTH_ERROR]', error);
@@ -271,21 +299,33 @@ function startWebServer(client) {
     app.get('/dashboard', async (req, res) => {
         const sessionId = req.cookies.session_id;
         if (sessionId) {
+            let userId = null;
             if (sessions.has(sessionId)) {
-                return res.sendFile(path.join(__dirname, 'public/dashboard.html'));
-            }
-            try {
-                const session = await db.get(`SELECT * FROM web_sessions WHERE id = ? AND expires_at > ?`, [sessionId, Date.now()]);
-                if (session) {
-                    sessions.set(sessionId, {
-                        id: session.user_id,
-                        username: session.username,
-                        email: session.email
-                    });
-                    return res.sendFile(path.join(__dirname, 'public/dashboard.html'));
+                userId = sessions.get(sessionId).id;
+            } else {
+                try {
+                    const session = await db.get(`SELECT * FROM web_sessions WHERE id = ? AND expires_at > ?`, [sessionId, Date.now()]);
+                    if (session) {
+                        userId = session.user_id;
+                        sessions.set(sessionId, {
+                            id: session.user_id,
+                            username: session.username,
+                            email: session.email
+                        });
+                    }
+                } catch (err) {
+                    console.error('[DASHBOARD_ERROR] Session check failed:', err);
                 }
-            } catch (err) {
-                console.error('[DASHBOARD_ERROR] Session check failed:', err);
+            }
+
+            if (userId) {
+                // Verify user holds contributor role (by checking user_availability presence)
+                const isHost = await db.get(`SELECT 1 FROM user_availability WHERE discord_id = ?`, [userId]);
+                if (isHost) {
+                    return res.sendFile(path.join(__dirname, 'public/dashboard.html'));
+                } else {
+                    return res.status(403).send('Access Denied: You must be a member of the Bits&Bytes Discord server and hold the "contributor" role to view the dashboard.');
+                }
             }
         }
         res.redirect('/');
@@ -298,16 +338,25 @@ function startWebServer(client) {
     // Fetch logged in user profile
     app.get('/api/user/me', checkAuth, async (req, res) => {
         try {
-            const user = await db.get(`SELECT * FROM user_availability WHERE discord_id = ?`, [req.user.id]);
-            if (user && user.associated_role_id) {
-                const guildId = process.env.GUILD_ID;
-                const guild = client.guilds.cache.get(guildId);
-                if (guild) {
-                    const role = guild.roles.cache.get(user.associated_role_id);
-                    if (role) {
-                        user.associated_role_name = role.name;
+            let user = await db.get(`SELECT * FROM user_availability WHERE discord_id = ?`, [req.user.id]);
+            if (user) {
+                if (user.associated_role_id) {
+                    const guildId = process.env.GUILD_ID;
+                    const guild = client.guilds.cache.get(guildId);
+                    if (guild) {
+                        const role = guild.roles.cache.get(user.associated_role_id);
+                        if (role) {
+                            user.associated_role_name = role.name;
+                        }
                     }
                 }
+            } else {
+                user = {
+                    discord_id: req.user.id,
+                    username: req.user.username,
+                    email: req.user.email,
+                    isGuest: true
+                };
             }
             res.json(user);
         } catch (err) {
@@ -539,7 +588,7 @@ function startWebServer(client) {
         }
     });
 
-    app.post('/api/book/:bookingLink', async (req, res) => {
+    app.post('/api/book/:bookingLink', checkAuth, async (req, res) => {
         const { bookingLink } = req.params;
         const { date, slot, name, email, title, description, notes, duration, additionalHosts, inviteWholeFork, instant } = req.body;
 
@@ -679,13 +728,8 @@ function startWebServer(client) {
                 await meetingsDb.addAttendee(id, 'user', host.discord_id);
             }
 
-            // Look up the booker's email and add them as an attendee if they are a registered Discord user
-            const bookerUser = await db.get(`SELECT * FROM user_availability WHERE email = ?`, [email.trim().toLowerCase()]);
-            if (bookerUser) {
-                await meetingsDb.addAttendee(id, 'user', bookerUser.discord_id);
-            } else if (req.user && req.user.id) {
-                await meetingsDb.addAttendee(id, 'user', req.user.id);
-            }
+            // Add the authenticated guest as an attendee
+            await meetingsDb.addAttendee(id, 'user', req.user.id);
 
             // Invite the whole fork if requested and host has role mapping
             for (const host of allHosts) {
