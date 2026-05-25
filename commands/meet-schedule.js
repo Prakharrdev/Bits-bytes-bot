@@ -156,6 +156,8 @@ module.exports = {
 							eventTypeId: eventType.id,
 							start: new Date(scheduledTime).toISOString(),
 							end: new Date(endTime).toISOString(),
+							timeZone: 'Asia/Kolkata',
+							language: 'en',
 							metadata: {
 								discord_meeting_id: id
 							},

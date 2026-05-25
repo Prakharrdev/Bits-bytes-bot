@@ -3,6 +3,7 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const crypto = require('crypto');
 const http = require('node:http');
+const { EmbedBuilder } = require('discord.js');
 
 const db = require('./lib/db');
 const meetingsDb = require('./lib/meetingsDb');
@@ -114,6 +115,42 @@ function startWebServer(client) {
 
             const userData = await userResponse.json();
 
+            // Resolve Discord city role
+            let cityRoleName = null;
+            let cityRoleId = null;
+            try {
+                const guildId = process.env.GUILD_ID;
+                const guild = client.guilds.cache.get(guildId);
+                if (guild) {
+                    await guild.members.fetch().catch(() => {});
+                    const member = guild.members.cache.get(userData.id);
+                    if (member) {
+                        const notion = require('./lib/notion');
+                        const forks = await notion.getForks().catch(() => []);
+                        const activeCities = forks
+                            .filter(f => f.properties?.Status?.select?.name === 'Active')
+                            .map(f => notion.getCityName(f))
+                            .filter(Boolean);
+
+                        const foundCityRole = member.roles.cache.find(r => 
+                            activeCities.some(city => city.toLowerCase() === r.name.toLowerCase())
+                        );
+
+                        if (foundCityRole) {
+                            cityRoleName = foundCityRole.name;
+                            cityRoleId = foundCityRole.id;
+                        }
+                    }
+                }
+            } catch (roleErr) {
+                console.warn('[AUTH_CALLBACK] Failed to resolve member city role:', roleErr.message);
+            }
+
+            let defaultTitle = userData.username;
+            if (cityRoleName) {
+                defaultTitle = `Fork ${cityRoleName}`;
+            }
+
             // Create session
             const sessionId = `session_${crypto.randomBytes(16).toString('hex')}`;
             sessions.set(sessionId, {
@@ -126,13 +163,18 @@ function startWebServer(client) {
             const existingUser = await db.get(`SELECT 1 FROM user_availability WHERE discord_id = ?`, [userData.id]);
             if (!existingUser) {
                 await db.run(
-                    `INSERT INTO user_availability (discord_id, username, email, timezone, weekly_hours, booking_link, title, description)
-                     VALUES (?, ?, ?, 'Asia/Kolkata', '{"monday":[],"tuesday":[],"wednesday":[],"thursday":[],"friday":[],"saturday":[],"sunday":[]}', ?, ?, '')`,
-                    [userData.id, userData.username, userData.email || null, `link_${userData.username.toLowerCase().substring(0, 10)}`, userData.username]
+                    `INSERT INTO user_availability (discord_id, username, email, timezone, weekly_hours, booking_link, title, description, associated_role_id)
+                     VALUES (?, ?, ?, 'Asia/Kolkata', '{"monday":[],"tuesday":[],"wednesday":[],"thursday":[],"friday":[],"saturday":[],"sunday":[]}', ?, ?, '', ?)`,
+                    [userData.id, userData.username, userData.email || null, `link_${userData.username.toLowerCase().substring(0, 10)}`, defaultTitle, cityRoleId || null]
                 );
             } else {
-                // Update email if it changed or was null
-                await db.run(`UPDATE user_availability SET email = ? WHERE discord_id = ?`, [userData.email || null, userData.id]);
+                // Update email and associated_role_id if it changed
+                await db.run(
+                    `UPDATE user_availability 
+                     SET email = ?, associated_role_id = ? 
+                     WHERE discord_id = ?`,
+                    [userData.email || null, cityRoleId || null, userData.id]
+                );
             }
 
             // Set cookie
@@ -171,6 +213,16 @@ function startWebServer(client) {
     app.get('/api/user/me', checkAuth, async (req, res) => {
         try {
             const user = await db.get(`SELECT * FROM user_availability WHERE discord_id = ?`, [req.user.id]);
+            if (user && user.associated_role_id) {
+                const guildId = process.env.GUILD_ID;
+                const guild = client.guilds.cache.get(guildId);
+                if (guild) {
+                    const role = guild.roles.cache.get(user.associated_role_id);
+                    if (role) {
+                        user.associated_role_name = role.name;
+                    }
+                }
+            }
             res.json(user);
         } catch (err) {
             res.status(500).json({ error: 'Failed to retrieve profile' });
@@ -234,104 +286,76 @@ function startWebServer(client) {
     // List all active booking profiles
     app.get('/api/users', async (req, res) => {
         try {
-            const users = await db.all(`SELECT username, title, booking_link, description, timezone, weekly_hours, calcom_event_type_id FROM user_availability WHERE booking_link IS NOT NULL`);
+            const users = await db.all(`SELECT username, title, booking_link, description, timezone, weekly_hours, calcom_event_type_id, associated_role_id FROM user_availability WHERE booking_link IS NOT NULL`);
             res.json(users);
         } catch (err) {
             res.status(500).json({ error: 'Database query failed' });
         }
     });
 
-    // Calculate free slots for a host
-    app.get('/api/availability/:bookingLink', async (req, res) => {
-        const { bookingLink } = req.params;
-        const { date } = req.query; // format YYYY-MM-DD
+    // Helper to calculate free slots in UTC for a single host
+    async function getHostFreeSlotsUTC(host, dateStr, duration, primaryTimeZone) {
+        const offset = OFFSETS[primaryTimeZone] || '+05:30';
+        const localStartISO = `${dateStr}T00:00:00${offset}`;
+        const localEndISO = `${dateStr}T23:59:59${offset}`;
+        const startUTC = new Date(localStartISO).toISOString();
+        const endUTC = new Date(localEndISO).toISOString();
 
-        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-            return res.status(400).json({ error: 'Valid date parameter YYYY-MM-DD required' });
+        if (host.calcom_event_type_id && process.env.CALCOM_API_KEY) {
+            try {
+                const calcom = require('./lib/calcom');
+                const slotsData = await calcom.getSlots(host.calcom_event_type_id, startUTC, endUTC, duration);
+                const slotsMap = slotsData.slots || slotsData;
+                const utcSlots = [];
+
+                let slotsArray = [];
+                if (Array.isArray(slotsMap)) {
+                    slotsArray = slotsMap;
+                } else if (slotsMap && typeof slotsMap === 'object') {
+                    for (const dKey in slotsMap) {
+                        if (Array.isArray(slotsMap[dKey])) {
+                            slotsArray.push(...slotsMap[dKey]);
+                        }
+                    }
+                }
+
+                for (const s of slotsArray) {
+                    if (s.time || s.start) {
+                        utcSlots.push(new Date(s.time || s.start).toISOString());
+                    }
+                }
+                return utcSlots;
+            } catch (calcomErr) {
+                console.error(`[CALCOM] Slots fetch failed for host ${host.username}:`, calcomErr.message);
+            }
         }
 
-        try {
-            const host = await db.get(`SELECT * FROM user_availability WHERE booking_link = ?`, [bookingLink]);
-            if (!host) {
-                return res.status(404).json({ error: 'Host not found' });
-            }
+        // Local DB calculation
+        const hostOffset = OFFSETS[host.timezone] || '+05:30';
+        const weeklyHours = JSON.parse(host.weekly_hours || '{}');
+        
+        // We get the meetings for this host
+        const meetings = await db.all(`
+            SELECT m.scheduled_time, m.end_time 
+            FROM meetings m
+            LEFT JOIN meeting_attendees ma ON m.id = ma.meeting_id
+            WHERE (m.creator_id = ? OR ma.discord_id = ?) 
+              AND m.status != 'cancelled'
+        `, [host.discord_id, host.discord_id]);
 
-            // Get host timezone offset (e.g., '+05:30')
-            const offset = OFFSETS[host.timezone] || '+05:30';
+        const utcSlots = [];
+        const primaryDateObj = new Date(localStartISO);
+        const checkDates = [
+            new Date(primaryDateObj.getTime() - 24 * 60 * 60 * 1000), // yesterday
+            primaryDateObj, // today
+            new Date(primaryDateObj.getTime() + 24 * 60 * 60 * 1000)  // tomorrow
+        ];
 
-            // If Cal.com event type is configured, fetch slots directly from Cal.com
-            if (host.calcom_event_type_id && process.env.CALCOM_API_KEY) {
-                try {
-                    const calcom = require('./lib/calcom');
-                    const localStartISO = `${date}T00:00:00${offset}`;
-                    const localEndISO = `${date}T23:59:59${offset}`;
-                    const startUTC = new Date(localStartISO).toISOString();
-                    const endUTC = new Date(localEndISO).toISOString();
+        for (const dObj of checkDates) {
+            const dStr = dObj.toISOString().split('T')[0];
+            const dayOfWeekName = dObj.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+            const dailySlots = weeklyHours[dayOfWeekName] || [];
 
-                    const slotsData = await calcom.getSlots(host.calcom_event_type_id, startUTC, endUTC);
-                    const slotsMap = slotsData.slots || slotsData;
-                    const freeSlots = [];
-
-                    let slotsArray = [];
-                    if (Array.isArray(slotsMap)) {
-                        slotsArray = slotsMap;
-                    } else if (slotsMap && typeof slotsMap === 'object') {
-                        for (const dKey in slotsMap) {
-                            if (Array.isArray(slotsMap[dKey])) {
-                                slotsArray.push(...slotsMap[dKey]);
-                            }
-                        }
-                    }
-
-                    for (const s of slotsArray) {
-                        const sTime = s.time; // e.g. "2026-05-26T16:00:00Z"
-                        if (sTime) {
-                            const dateObj = new Date(sTime);
-                            // Convert to host's local timezone
-                            const localTimeStr = dateObj.toLocaleTimeString('en-US', {
-                                timeZone: host.timezone,
-                                hour: '2-digit',
-                                minute: '2-digit',
-                                hour12: false
-                            });
-                            const parts = localTimeStr.split(':');
-                            if (parts.length >= 2) {
-                                const formatted = `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
-                                if (dateObj.getTime() > Date.now() && !freeSlots.includes(formatted)) {
-                                    freeSlots.push(formatted);
-                                }
-                            }
-                        }
-                    }
-
-                    freeSlots.sort();
-                    return res.json(freeSlots);
-                } catch (calcomErr) {
-                    console.error('[CALCOM] Slots fetch failed, falling back to local availability calculation:', calcomErr.message);
-                }
-            }
-
-            // Fallback: Calculate availability locally using weekly_hours and SQLite database
-            const weeklyHours = JSON.parse(host.weekly_hours || '{}');
-            const dayOfWeek = new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-            const dailySlots = weeklyHours[dayOfWeek] || [];
-
-            if (dailySlots.length === 0) {
-                return res.json([]);
-            }
-
-            // Query active meetings for this host on this date
-            const meetings = await db.all(`
-                SELECT m.scheduled_time, m.end_time 
-                FROM meetings m
-                LEFT JOIN meeting_attendees ma ON m.id = ma.meeting_id
-                WHERE (m.creator_id = ? OR ma.discord_id = ?) 
-                  AND m.status != 'cancelled'
-            `, [host.discord_id, host.discord_id]);
-
-            const freeSlots = [];
-
-            // Daily availability ranges
             for (const range of dailySlots) {
                 const [startH, startM] = range.start.split(':').map(Number);
                 const [endH, endM] = range.end.split(':').map(Number);
@@ -339,35 +363,90 @@ function startWebServer(client) {
                 let currentMin = startH * 60 + startM;
                 const endMin = endH * 60 + endM;
 
-                while (currentMin + 30 <= endMin) {
+                while (currentMin + duration <= endMin) {
                     const h = String(Math.floor(currentMin / 60)).padStart(2, '0');
                     const m = String(currentMin % 60).padStart(2, '0');
                     const timeStr = `${h}:${m}`;
 
-                    // Parse this slot start time in host's timezone
-                    const slotStartISO = `${date}T${timeStr}:00${offset}`;
+                    // Calculate slot start time in host's timezone
+                    const slotStartISO = `${dStr}T${timeStr}:00${hostOffset}`;
                     const slotStartMs = Date.parse(slotStartISO);
-                    const slotEndMs = slotStartMs + 30 * 60 * 1000;
+                    const slotEndMs = slotStartMs + duration * 60 * 1000;
 
-                    // Filter out past slots
-                    if (slotStartMs > Date.now()) {
-                        // Check if slot overlaps with any existing meeting
-                        const overlaps = meetings.some(meeting => {
-                            const mStart = Number(meeting.scheduled_time);
-                            const mEnd = meeting.end_time ? Number(meeting.end_time) : (mStart + 30 * 60 * 1000);
+                    // Check if this slot falls within our primary host's date range (startUTC to endUTC)
+                    if (slotStartMs >= Date.parse(startUTC) && slotStartMs <= Date.parse(endUTC) && slotStartMs > Date.now()) {
+                        // Check overlap
+                        const overlaps = meetings.some(m => {
+                            const mStart = Number(m.scheduled_time);
+                            const mEnd = m.end_time ? Number(m.end_time) : (mStart + 30 * 60 * 1000);
                             return (slotStartMs < mEnd && slotEndMs > mStart);
                         });
 
                         if (!overlaps) {
-                            freeSlots.push(timeStr);
+                            utcSlots.push(new Date(slotStartMs).toISOString());
                         }
                     }
 
-                    currentMin += 30; // 30 minute intervals
+                    currentMin += 15; // 15-minute increments for start times
+                }
+            }
+        }
+
+        return utcSlots;
+    }
+
+    // Calculate free slots for a host
+    app.get('/api/availability/:bookingLink', async (req, res) => {
+        const { bookingLink } = req.params;
+        const { date } = req.query; // format YYYY-MM-DD
+        const duration = parseInt(req.query.duration || 30, 10);
+        const additionalHosts = req.query.additional ? req.query.additional.split(',') : [];
+
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            return res.status(400).json({ error: 'Valid date parameter YYYY-MM-DD required' });
+        }
+
+        try {
+            const primaryHost = await db.get(`SELECT * FROM user_availability WHERE booking_link = ?`, [bookingLink]);
+            if (!primaryHost) {
+                return res.status(404).json({ error: 'Primary host not found' });
+            }
+
+            // Fetch primary host slots
+            let commonSlots = await getHostFreeSlotsUTC(primaryHost, date, duration, primaryHost.timezone);
+
+            // Fetch and intersect additional host slots
+            for (const handle of additionalHosts) {
+                if (!handle.trim()) continue;
+                const addHost = await db.get(`SELECT * FROM user_availability WHERE booking_link = ?`, [handle.trim()]);
+                if (addHost) {
+                    const hostSlots = await getHostFreeSlotsUTC(addHost, date, duration, primaryHost.timezone);
+                    // Intersect
+                    commonSlots = commonSlots.filter(slot => hostSlots.includes(slot));
                 }
             }
 
-            res.json(freeSlots);
+            // Convert common UTC slots back to primary host's timezone time strings (HH:MM)
+            const resultSlots = [];
+            for (const utcTime of commonSlots) {
+                const dateObj = new Date(utcTime);
+                const localTimeStr = dateObj.toLocaleTimeString('en-US', {
+                    timeZone: primaryHost.timezone,
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+                const parts = localTimeStr.split(':');
+                if (parts.length >= 2) {
+                    const formatted = `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+                    if (!resultSlots.includes(formatted)) {
+                        resultSlots.push(formatted);
+                    }
+                }
+            }
+
+            resultSlots.sort();
+            res.json(resultSlots);
 
         } catch (err) {
             console.error('[AVAILABILITY_API_ERROR]', err);
@@ -392,60 +471,81 @@ function startWebServer(client) {
 
     app.post('/api/book/:bookingLink', async (req, res) => {
         const { bookingLink } = req.params;
-        const { date, slot, name, email, title, description } = req.body;
+        const { date, slot, name, email, title, description, notes, duration, additionalHosts, inviteWholeFork } = req.body;
 
         if (!date || !slot || !name || !email || !title) {
             return res.status(400).json({ error: 'All fields (date, slot, name, email, title) are required.' });
         }
 
+        const selectedDuration = parseInt(duration || 30, 10);
+
         try {
-            const host = await db.get(`SELECT * FROM user_availability WHERE booking_link = ?`, [bookingLink]);
-            if (!host) {
-                return res.status(404).json({ error: 'Host not found.' });
+            const primaryHost = await db.get(`SELECT * FROM user_availability WHERE booking_link = ?`, [bookingLink]);
+            if (!primaryHost) {
+                return res.status(404).json({ error: 'Primary host not found.' });
             }
 
-            const offset = OFFSETS[host.timezone] || '+05:30';
+            const offset = OFFSETS[primaryHost.timezone] || '+05:30';
             const slotStartISO = `${date}T${slot}:00${offset}`;
             const startTimeMs = Date.parse(slotStartISO);
-            const endTimeMs = startTimeMs + 30 * 60 * 1000;
+            const endTimeMs = startTimeMs + selectedDuration * 60 * 1000;
 
             if (startTimeMs <= Date.now()) {
                 return res.status(400).json({ error: 'Cannot book a slot in the past.' });
             }
 
-            // Check if slot is still available
-            const existingMeeting = await db.get(`
-                SELECT 1 FROM meetings m
-                LEFT JOIN meeting_attendees ma ON m.id = ma.meeting_id
-                WHERE (m.creator_id = ? OR ma.discord_id = ?)
-                  AND m.status != 'cancelled'
-                  AND m.scheduled_time < ? 
-                  AND (m.end_time > ? OR m.scheduled_time + 1800000 > ?)
-            `, [host.discord_id, host.discord_id, endTimeMs, startTimeMs, startTimeMs]);
+            // Resolve all hosts (primary and additional)
+            const allHosts = [primaryHost];
+            const additionalHandles = Array.isArray(additionalHosts) ? additionalHosts : (additionalHosts ? additionalHosts.split(',') : []);
+            
+            for (const handle of additionalHandles) {
+                if (!handle.trim() || handle.trim() === bookingLink) continue;
+                const addHost = await db.get(`SELECT * FROM user_availability WHERE booking_link = ?`, [handle.trim()]);
+                if (addHost) {
+                    allHosts.push(addHost);
+                }
+            }
 
-            if (existingMeeting) {
-                return res.status(400).json({ error: 'This slot has already been booked.' });
+            // Check if slot is still available for ALL hosts
+            for (const host of allHosts) {
+                const existingMeeting = await db.get(`
+                    SELECT 1 FROM meetings m
+                    LEFT JOIN meeting_attendees ma ON m.id = ma.meeting_id
+                    WHERE (m.creator_id = ? OR ma.discord_id = ?)
+                      AND m.status != 'cancelled'
+                      AND m.scheduled_time < ? 
+                      AND (COALESCE(m.end_time, m.scheduled_time + 1800000) > ?)
+                `, [host.discord_id, host.discord_id, endTimeMs, startTimeMs]);
+
+                if (existingMeeting) {
+                    return res.status(400).json({ error: `The slot is no longer available for ${host.title || host.username}.` });
+                }
             }
 
             // Create the meeting record
             const id = `meet_calweb_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             
-            // Push booking to Cal.com if event type is configured
+            // Push booking to Cal.com for the primary host if configured
             let calcomBookingId = null;
-            if (host.calcom_event_type_id && process.env.CALCOM_API_KEY) {
+            if (primaryHost.calcom_event_type_id && process.env.CALCOM_API_KEY) {
                 try {
                     const calcom = require('./lib/calcom');
                     const bookingBody = {
-                        eventTypeId: parseInt(host.calcom_event_type_id, 10),
+                        eventTypeId: parseInt(primaryHost.calcom_event_type_id, 10),
                         start: new Date(startTimeMs).toISOString(),
                         end: new Date(endTimeMs).toISOString(),
+                        timeZone: primaryHost.timezone || 'Asia/Kolkata',
+                        language: 'en',
                         metadata: {
                             discord_meeting_id: id
                         },
                         attendee: {
                             name: name,
                             email: email.trim().toLowerCase(),
-                            timeZone: host.timezone
+                            timeZone: primaryHost.timezone || 'Asia/Kolkata'
+                        },
+                        bookingFieldsResponses: {
+                            notes: notes || description || ''
                         }
                     };
                     const bookingResponse = await calcom.createBooking(bookingBody);
@@ -457,14 +557,22 @@ function startWebServer(client) {
                 }
             }
 
+            let finalDescription = description || `Custom scheduled session via cal.gobitsnbytes.org.\nInvitee: ${name} (${email})`;
+            if (notes) {
+                finalDescription += `\n\nNotes from booker:\n${notes}`;
+            }
+
+            // List of host names for meeting title
+            const hostTitles = allHosts.map(h => h.title || h.username).join(', ');
+
             const newMeeting = {
                 id,
-                title: `${host.title} <> ${name}: ${title}`,
-                description: description || `Custom scheduled session via cal.gobitsnbytes.org.\nInvitee: ${name} (${email})`,
+                title: `${hostTitles} <> ${name}: ${title}`,
+                description: finalDescription,
                 scheduledTime: startTimeMs,
                 locationType: 'discord_vc',
                 locationDetails: '',
-                creatorId: host.discord_id,
+                creatorId: primaryHost.discord_id,
                 status: 'scheduled',
                 endTime: endTimeMs,
                 externalEmails: [email.trim().toLowerCase()],
@@ -473,7 +581,18 @@ function startWebServer(client) {
             };
 
             await meetingsDb.createMeeting(newMeeting);
-            await meetingsDb.addAttendee(id, 'user', host.discord_id);
+            
+            // Add all hosts as attendees
+            for (const host of allHosts) {
+                await meetingsDb.addAttendee(id, 'user', host.discord_id);
+            }
+
+            // Invite the whole fork if requested and host has role mapping
+            for (const host of allHosts) {
+                if (inviteWholeFork && host.associated_role_id) {
+                    await meetingsDb.addAttendee(id, 'role', host.associated_role_id);
+                }
+            }
 
             // Announce to events channel if bot client is logged in
             const guild = client.guilds.cache.first();
@@ -490,6 +609,9 @@ function startWebServer(client) {
                         year: 'numeric'
                     }) + ' IST';
 
+                    // Construct host mentions
+                    const hostMentions = allHosts.map(h => `<@${h.discord_id}>`).join(', ');
+
                     const embed = new EmbedBuilder()
                         .setTitle(`📅 SCHEDULER // NEW_BOOKING`)
                         .setDescription(`A meeting was booked via cal.gobitsnbytes.org.`)
@@ -497,18 +619,20 @@ function startWebServer(client) {
                             { name: '📋 TITLE', value: newMeeting.title, inline: false },
                             { name: '📅 TIME (IST)', value: `\`${istTimeString}\` (<t:${Math.floor(startTimeMs / 1000)}:F>)`, inline: false },
                             { name: '🌐 LOCATION', value: 'Discord Temporary Voice Channel', inline: true },
-                            { name: '👥 INVITEES', value: `<@${host.discord_id}>, \`${email}\``, inline: true }
+                            { name: '👥 HOSTS', value: hostMentions, inline: true },
+                            { name: '✉️ BOOKER', value: `\`${name} (${email})\``, inline: true }
                         )
                         .setColor('#FFFFFF')
                         .setTimestamp()
                         .setFooter({ text: config.BRANDING.footerText });
 
-                    if (description) {
-                        embed.addFields({ name: '📝 DESCRIPTION', value: description, inline: false });
+                    if (finalDescription) {
+                        embed.addFields({ name: '📝 DESCRIPTION', value: finalDescription, inline: false });
                     }
 
+                    const leadMentions = allHosts.map(h => `<@${h.discord_id}>`).join(' ');
                     await eventsChannel.send({
-                        content: `🔔 **New Portal Booking**: <@${host.discord_id}>`,
+                        content: `🔔 **New Portal Booking**: ${leadMentions}`,
                         embeds: [embed]
                     });
                 }

@@ -38,11 +38,43 @@
         </div>
     </main>
 
+    <div class="floating-bar" id="selection-bar">
+        <span style="font-size: 0.9rem; font-weight: 600; color: var(--muted-foreground);" id="selection-text">0 members selected</span>
+        <button type="button" class="btn btn-primary" id="selection-book-btn" style="padding: 0.5rem 1.5rem; font-size: 0.875rem;" onclick="bookSelectedHosts()">Book Sync</button>
+    </div>
+
     <footer>
         <p>© 2026 Bits&Bytes Foundation. Powered by Discord Voice Infrastructure.</p>
     </footer>
 
     <script>
+        let selectedHosts = [];
+
+        function updateSelectionBar() {
+            const bar = document.getElementById('selection-bar');
+            const text = document.getElementById('selection-text');
+            
+            const checkboxes = document.querySelectorAll('.host-checkbox:checked');
+            selectedHosts = Array.from(checkboxes).map(cb => ({
+                link: cb.dataset.link,
+                title: cb.dataset.title
+            }));
+            
+            if (selectedHosts.length > 0) {
+                text.textContent = `${selectedHosts.length} member${selectedHosts.length > 1 ? 's' : ''} selected`;
+                bar.classList.add('active');
+            } else {
+                bar.classList.remove('active');
+            }
+        }
+
+        function bookSelectedHosts() {
+            if (selectedHosts.length === 0) return;
+            const primary = selectedHosts[0].link;
+            const handles = selectedHosts.map(h => h.link).join(',');
+            window.location.href = `/${primary}?hosts=${handles}`;
+        }
+
         async function loadHosts() {
             try {
                 const res = await fetch('/api/users');
@@ -56,7 +88,7 @@
                         <div class="empty-state" style="grid-column: 1 / -1;">
                             <div class="empty-icon">📭</div>
                             <h2>No team members registered yet</h2>
-                            <p>If you are a core team member, log in using the button above to configure your availability and booking link.</p>
+                            <p>If you are a member of the network, log in using the button above to configure your availability and booking link.</p>
                         </div>
                     `;
                     return;
@@ -67,6 +99,9 @@
                     const card = document.createElement('div');
                     card.className = 'user-card';
                     card.innerHTML = `
+                        <div style="position: absolute; top: 1.25rem; right: 1.25rem; z-index: 10;">
+                            <input type="checkbox" class="host-checkbox" data-link="${user.booking_link}" data-title="${user.title || user.username}" onchange="updateSelectionBar()" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary);">
+                        </div>
                         <div>
                             <div class="user-card-header">
                                 <div class="user-avatar">${avatarLetter}</div>
@@ -76,7 +111,7 @@
                                 </div>
                             </div>
                             <div class="user-card-body">
-                                ${user.description || 'Core team member at Bits&Bytes. Book a session to sync on projects, events, or operations.'}
+                                ${user.description || 'Active member at Bits&Bytes. Book a session to sync on projects, events, or operations.'}
                             </div>
                         </div>
                         <div class="user-card-footer">

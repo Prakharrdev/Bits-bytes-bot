@@ -220,12 +220,29 @@
             <div class="calcom-col host-details-col" id="host-sidebar">
                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; color: var(--muted-foreground); font-size: 0.85rem; font-weight: 700;">
                     <img src="https://gobitsnbytes.org/logo" alt="Bits&Bytes" style="height: 18px; width: auto;">
-                    <span>Bits&Bytes Foundation</span>
+                    <span>Bits&Bytes Scheduler</span>
                 </div>
-                <div class="user-avatar" style="width: 48px; height: 48px; font-size: 1.25rem; margin-bottom: 1.25rem; box-shadow: 0 4px 15px rgba(0,0,0,0.4);" id="host-avatar">?</div>
-                <h2 id="host-name" style="font-size: 1.35rem; font-weight: 800; margin-bottom: 0.25rem; color: var(--primary);">Loading host...</h2>
-                <span id="host-title" style="color: var(--muted-foreground); font-family: monospace; display: block; margin-bottom: 1.5rem; font-size: 0.85rem;">@handle</span>
-                <p id="host-description" style="color: var(--muted-foreground); font-size: 0.9rem; line-height: 1.6; margin-bottom: 2rem;">Loading bio...</p>
+                
+                <h3 style="font-size: 0.75rem; font-weight: 700; color: var(--muted-foreground); text-transform: uppercase; margin-bottom: 0.75rem; letter-spacing: 0.05em;">Selected Hosts</h3>
+                <div id="hosts-list-container" style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; max-height: 240px; overflow-y: auto; padding-right: 0.25rem;">
+                    <!-- Dynamically populated hosts list -->
+                </div>
+
+                <div id="add-host-container" style="margin-bottom: 1.25rem;">
+                    <label for="add-host-select" style="font-size: 0.75rem; font-weight: 700; color: var(--muted-foreground); text-transform: uppercase; margin-bottom: 0.35rem; display: block; letter-spacing: 0.05em;">Add Host to Sync</label>
+                    <select id="add-host-select" class="form-control" style="width: 100%; padding: 0.5rem; font-size: 0.85rem; background: var(--secondary); border: 1px solid var(--border); border-radius: var(--radius); color: var(--primary); outline: none;">
+                        <option value="">-- Choose Member --</option>
+                    </select>
+                </div>
+
+                <div class="duration-selector" style="margin-bottom: 1.5rem;">
+                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--muted-foreground); text-transform: uppercase; margin-bottom: 0.5rem; display: block; letter-spacing: 0.05em;">Meeting Duration</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button type="button" class="btn btn-secondary duration-btn" data-duration="15" style="flex: 1; padding: 0.4rem 0.5rem; font-size: 0.85rem;">15m</button>
+                        <button type="button" class="btn btn-primary duration-btn" data-duration="30" style="flex: 1; padding: 0.4rem 0.5rem; font-size: 0.85rem;">30m</button>
+                        <button type="button" class="btn btn-secondary duration-btn" data-duration="45" style="flex: 1; padding: 0.4rem 0.5rem; font-size: 0.85rem;">45m</button>
+                    </div>
+                </div>
                 
                 <div style="margin-top: auto; display: flex; flex-direction: column; gap: 0.75rem;">
                     <div class="detail-item">
@@ -233,7 +250,7 @@
                             <circle cx="12" cy="12" r="10"></circle>
                             <polyline points="12 6 12 12 16 14"></polyline>
                         </svg>
-                        <span>30 Min Sync Session</span>
+                        <span id="selected-duration-label">30 Min Sync Session</span>
                     </div>
                     <div class="detail-item">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -303,6 +320,16 @@
                         <label for="meeting-description">Brief Description / Agenda</label>
                         <textarea id="meeting-description" class="form-control" placeholder="What would you like to discuss?"></textarea>
                     </div>
+                    <div class="form-group">
+                        <label for="meeting-notes">Meeting Notes / Special Instructions</label>
+                        <textarea id="meeting-notes" class="form-control" placeholder="Add any private meeting notes, tags, or special instructions..."></textarea>
+                    </div>
+                    <div class="form-group" id="fork-invite-group" style="display: none; margin-top: 1.25rem; margin-bottom: 1.25rem;">
+                        <label style="display: flex; align-items: center; gap: 0.65rem; cursor: pointer; font-weight: 500;">
+                            <input type="checkbox" id="invite-whole-fork" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary);">
+                            <span style="font-size: 0.875rem; color: var(--primary);">Invite entire city fork (Fork team members)?</span>
+                        </label>
+                    </div>
                     
                     <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
                         <button type="button" class="btn btn-secondary" id="close-modal-btn">Cancel</button>
@@ -324,9 +351,12 @@
             
             <div class="details-info-box">
                 <p><strong>Meeting:</strong> <span id="success-meeting-title">Sync meeting</span></p>
-                <p><strong>Host:</strong> <span id="success-host-name">Core team member</span></p>
+                <p><strong>Hosts:</strong> <span id="success-hosts-names">Core team members</span></p>
+                <p><strong>Duration:</strong> <span id="success-duration">30 minutes</span></p>
                 <p><strong>Time:</strong> <span id="success-time">Time</span></p>
                 <p><strong>Location:</strong> <span id="success-location">Discord Temporary Voice Channel</span></p>
+                <p id="success-notes-row" style="display: none;"><strong>Notes:</strong> <span id="success-notes" style="font-weight: normal; color: var(--muted-foreground);"></span></p>
+                <p id="success-fork-row" style="display: none;"><strong>Fork Invite:</strong> <span style="color: var(--success); font-weight: 600;">Entire city fork invited</span></p>
             </div>
             
             <div class="notice-card">
@@ -350,42 +380,170 @@
     </footer>
 
     <script>
-        const bookingLink = window.location.pathname.substring(1);
-        let hostData = null;
+        const primaryLink = window.location.pathname.substring(1);
+        
+        // Parse hosts from URL query parameters (comma separated handles)
+        const params = new URLSearchParams(window.location.search);
+        const hostsParam = params.get('hosts') || '';
+        let hostHandles = hostsParam.split(',')
+            .map(h => h.trim())
+            .filter(h => h.length > 0);
+            
+        // Ensure primary host is always in the list and at the beginning
+        if (!hostHandles.includes(primaryLink)) {
+            hostHandles.unshift(primaryLink);
+        }
+
+        let allUsers = [];
+        let selectedHosts = [];
+        let primaryHost = null;
         let currentDate = new Date();
         let selectedDateStr = '';
         let selectedTimeSlot = '';
+        let selectedDuration = 30; // default duration
 
         const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+        // Add event listeners for duration buttons
+        document.querySelectorAll('.duration-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                // Toggle active styles using Bootstrap-like utility classes
+                document.querySelectorAll('.duration-btn').forEach(b => {
+                    b.classList.remove('btn-primary');
+                    b.classList.add('btn-secondary');
+                });
+                btn.classList.remove('btn-secondary');
+                btn.classList.add('btn-primary');
+                
+                selectedDuration = parseInt(btn.dataset.duration, 10);
+                document.getElementById('selected-duration-label').textContent = `${selectedDuration} Min Sync Session`;
+                
+                // Re-fetch slots if date is selected
+                if (selectedDateStr) {
+                    selectDate(selectedDateStr);
+                }
+            });
+        });
+
+        // Add event listener for host selection dropdown
+        document.getElementById('add-host-select').addEventListener('change', (e) => {
+            const handle = e.target.value;
+            if (!handle) return;
+            
+            if (!hostHandles.includes(handle)) {
+                hostHandles.push(handle);
+                updateURLAndReload();
+            }
+            e.target.value = '';
+        });
+
+        function updateURLAndReload() {
+            const newURL = `/${primaryLink}?hosts=${hostHandles.join(',')}`;
+            window.history.replaceState({ path: newURL }, '', newURL);
+            
+            // Re-resolve and re-fetch availability
+            resolveHosts();
+        }
+
+        function removeHost(handle) {
+            if (handle === primaryLink) {
+                alert('Cannot remove the primary host of this booking page.');
+                return;
+            }
+            hostHandles = hostHandles.filter(h => h !== handle);
+            updateURLAndReload();
+        }
 
         async function loadHostDetails() {
             try {
                 const res = await fetch(`/api/users`);
-                const users = await res.json();
-                hostData = users.find(u => u.booking_link === bookingLink);
+                allUsers = await res.json();
                 
-                if (!hostData) {
-                    document.getElementById('booking-flow').innerHTML = `
-                        <div class="empty-state" style="grid-column: 1 / -1; border-color: var(--error);">
-                            <div class="empty-icon" style="color: var(--error);">🔍</div>
-                            <h2 style="color: var(--error);">Host Not Found</h2>
-                            <p>The booking handle "@${bookingLink}" does not match any registered team member.</p>
-                            <a href="/" class="btn btn-secondary" style="margin-top: 1rem;">Go to Home</a>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                document.getElementById('host-avatar').textContent = hostData.title.charAt(0).toUpperCase();
-                document.getElementById('host-name').textContent = hostData.title;
-                document.getElementById('host-title').textContent = `@${hostData.booking_link}`;
-                document.getElementById('host-description').textContent = hostData.description || 'No bio provided.';
-                document.getElementById('host-timezone').textContent = hostData.timezone;
-                
-                renderCalendar();
+                resolveHosts();
             } catch (err) {
-                console.error(err);
+                console.error('Failed to fetch users:', err);
             }
+        }
+
+        function resolveHosts() {
+            // Find all matching hosts in allUsers list
+            selectedHosts = hostHandles.map(handle => allUsers.find(u => u.booking_link === handle)).filter(Boolean);
+            primaryHost = allUsers.find(u => u.booking_link === primaryLink);
+            
+            if (!primaryHost) {
+                document.getElementById('booking-flow').innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1; border-color: var(--error);">
+                        <div class="empty-icon" style="color: var(--error);">🔍</div>
+                        <h2 style="color: var(--error);">Host Not Found</h2>
+                        <p>The booking handle "@${primaryLink}" does not match any registered team member.</p>
+                        <a href="/" class="btn btn-secondary" style="margin-top: 1rem;">Go to Home</a>
+                    </div>
+                `;
+                return;
+            }
+
+            // Populate host selection select dropdown (exclude already selected hosts)
+            const select = document.getElementById('add-host-select');
+            select.innerHTML = '<option value="">-- Choose Member --</option>';
+            allUsers.forEach(user => {
+                if (!hostHandles.includes(user.booking_link)) {
+                    const opt = document.createElement('option');
+                    opt.value = user.booking_link;
+                    opt.textContent = `${user.title || user.username} (@${user.booking_link})`;
+                    select.appendChild(opt);
+                }
+            });
+
+            // Set primary host timezone and update display text
+            document.getElementById('host-timezone').textContent = primaryHost.timezone;
+
+            // Render selected hosts profiles in sidebar
+            renderSelectedHosts();
+            
+            // Check if any host has associated_role_id
+            const hasForkLead = selectedHosts.some(h => h.associated_role_id);
+            const forkInviteGroup = document.getElementById('fork-invite-group');
+            if (hasForkLead) {
+                forkInviteGroup.style.display = 'block';
+            } else {
+                forkInviteGroup.style.display = 'none';
+                document.getElementById('invite-whole-fork').checked = false;
+            }
+
+            // Render calendar grid and reload slots if date is selected
+            renderCalendar();
+            
+            if (selectedDateStr) {
+                selectDate(selectedDateStr);
+            } else {
+                document.getElementById('slots-section').style.display = 'none';
+            }
+        }
+
+        function renderSelectedHosts() {
+            const container = document.getElementById('hosts-list-container');
+            container.innerHTML = '';
+            
+            selectedHosts.forEach(host => {
+                const isPrimary = host.booking_link === primaryLink;
+                const avatarLetter = host.title ? host.title.charAt(0).toUpperCase() : host.username.charAt(0).toUpperCase();
+                
+                const hostDiv = document.createElement('div');
+                hostDiv.className = 'host-profile-item';
+                hostDiv.style.cssText = 'display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius); position: relative;';
+                
+                hostDiv.innerHTML = `
+                    <div class="user-avatar" style="width: 32px; height: 32px; font-size: 0.85rem; flex-shrink: 0; background: var(--muted); border: 1px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--primary);">${avatarLetter}</div>
+                    <div style="flex: 1; min-width: 0;">
+                        <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;">${host.title || host.username}</h4>
+                        <span style="font-size: 0.725rem; color: var(--muted-foreground); font-family: monospace; display: block;">@${host.booking_link}${isPrimary ? ' (Lead)' : ''}</span>
+                    </div>
+                    ${!isPrimary ? `
+                        <button type="button" class="remove-host-btn" onclick="removeHost('${host.booking_link}')" style="background: none; border: none; color: var(--error); cursor: pointer; padding: 0.25rem 0.5rem; font-size: 1.1rem; line-height: 1; outline: none; transition: var(--transition);" title="Remove host">×</button>
+                    ` : ''}
+                `;
+                container.appendChild(hostDiv);
+            });
         }
 
         function renderCalendar() {
@@ -417,7 +575,23 @@
             
             // Render days
             const today = new Date();
-            const weeklyHours = hostData.weekly_hours ? JSON.parse(hostData.weekly_hours) : {};
+            
+            // Weekly hours intersection of ALL selected hosts
+            const activeWeekdayHoursMap = {};
+            const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            
+            weekdays.forEach(day => {
+                let dayHasHours = true;
+                
+                selectedHosts.forEach(host => {
+                    const hostHours = host.weekly_hours ? JSON.parse(host.weekly_hours) : {};
+                    if (!hostHours[day] || hostHours[day].length === 0) {
+                        dayHasHours = false;
+                    }
+                });
+                
+                activeWeekdayHoursMap[day] = dayHasHours;
+            });
             
             for (let day = 1; day <= totalDays; day++) {
                 const dayDate = new Date(year, month, day);
@@ -426,13 +600,16 @@
                 const calendarDay = document.createElement('div');
                 calendarDay.className = 'calendar-day';
                 calendarDay.textContent = day;
+                if (selectedDateStr === dayStr) {
+                    calendarDay.className += ' active';
+                }
                 
                 // Check if in past
                 const isPast = new Date(year, month, day, 23, 59, 59) < today;
                 
                 // Check weekday availability
                 const weekdayName = dayDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                const hasHours = weeklyHours[weekdayName] && weeklyHours[weekdayName].length > 0;
+                const hasHours = activeWeekdayHoursMap[weekdayName];
                 
                 if (isPast || !hasHours) {
                     calendarDay.className += ' disabled';
@@ -467,12 +644,21 @@
             document.getElementById('selected-date-heading').textContent = `Available Timeslots for ${dateFormatted}`;
             
             try {
-                const res = await fetch(`/api/availability/${bookingLink}?date=${dateStr}`);
+                // Get additional host handles
+                const additional = selectedHosts.slice(1).map(h => h.booking_link).join(',');
+                const queryStr = `date=${dateStr}&duration=${selectedDuration}${additional ? `&additional=${additional}` : ''}`;
+                
+                const res = await fetch(`/api/availability/${primaryLink}?${queryStr}`);
                 const slots = await res.json();
                 
                 slotsGrid.innerHTML = '';
                 
-                if (slots.length === 0) {
+                if (slots.error) {
+                    slotsGrid.innerHTML = `<p style="color: var(--error); font-size: 0.9rem; grid-column: 1 / -1;">${slots.error}</p>`;
+                    return;
+                }
+                
+                if (!slots || slots.length === 0) {
                     slotsGrid.innerHTML = '<p style="color: var(--error); font-size: 0.9rem; grid-column: 1 / -1;">No slots available on this date.</p>';
                     return;
                 }
@@ -503,7 +689,7 @@
             const dateObj = new Date(selectedDateStr);
             const dateFormatted = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
             
-            label.textContent = `${dateFormatted} at ${selectedTimeSlot} (${hostData.timezone})`;
+            label.textContent = `${dateFormatted} at ${selectedTimeSlot} (${primaryHost.timezone})`;
             modal.style.display = 'flex';
         }
 
@@ -515,12 +701,14 @@
             currentDate.setMonth(currentDate.getMonth() - 1);
             renderCalendar();
             document.getElementById('slots-section').style.display = 'none';
+            selectedDateStr = '';
         });
 
         document.getElementById('next-month').addEventListener('click', () => {
             currentDate.setMonth(currentDate.getMonth() + 1);
             renderCalendar();
             document.getElementById('slots-section').style.display = 'none';
+            selectedDateStr = '';
         });
 
         document.getElementById('booking-form').addEventListener('submit', async (e) => {
@@ -530,13 +718,17 @@
             const email = document.getElementById('guest-email').value.trim();
             const title = document.getElementById('meeting-title').value.trim();
             const description = document.getElementById('meeting-description').value.trim();
+            const notes = document.getElementById('meeting-notes').value.trim();
+            const inviteWholeFork = document.getElementById('invite-whole-fork').checked;
             
             const submitBtn = document.getElementById('submit-booking-btn');
             submitBtn.disabled = true;
             submitBtn.textContent = 'Scheduling...';
             
             try {
-                const res = await fetch(`/api/book/${bookingLink}`, {
+                const additional = selectedHosts.slice(1).map(h => h.booking_link).join(',');
+                
+                const res = await fetch(`/api/book/${primaryLink}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -545,7 +737,11 @@
                         name,
                         email,
                         title,
-                        description
+                        description,
+                        notes,
+                        duration: selectedDuration,
+                        additionalHosts: additional,
+                        inviteWholeFork
                     })
                 });
                 
@@ -554,11 +750,27 @@
                     document.getElementById('booking-flow').style.display = 'none';
                     
                     document.getElementById('success-meeting-title').textContent = title;
-                    document.getElementById('success-host-name').textContent = hostData.title;
+                    
+                    const hostNames = selectedHosts.map(h => h.title || h.username).join(', ');
+                    document.getElementById('success-hosts-names').textContent = hostNames;
+                    document.getElementById('success-duration').textContent = `${selectedDuration} minutes`;
                     
                     const dateObj = new Date(selectedDateStr);
                     const dateFormatted = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-                    document.getElementById('success-time').textContent = `${dateFormatted} @ ${selectedTimeSlot} (${hostData.timezone})`;
+                    document.getElementById('success-time').textContent = `${dateFormatted} @ ${selectedTimeSlot} (${primaryHost.timezone})`;
+                    
+                    if (notes) {
+                        document.getElementById('success-notes').textContent = notes;
+                        document.getElementById('success-notes-row').style.display = 'block';
+                    } else {
+                        document.getElementById('success-notes-row').style.display = 'none';
+                    }
+                    
+                    if (inviteWholeFork) {
+                        document.getElementById('success-fork-row').style.display = 'block';
+                    } else {
+                        document.getElementById('success-fork-row').style.display = 'none';
+                    }
                     
                     document.getElementById('success-screen').style.display = 'block';
                 } else {

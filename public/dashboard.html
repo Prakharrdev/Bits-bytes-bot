@@ -109,14 +109,18 @@
                 </div>
                 
                 <div style="display: flex; flex-direction: column; gap: 1.25rem;">
-                    <div>
-                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--muted-foreground); display: block; text-transform: uppercase; letter-spacing: 0.05em;">Public Booking URL</span>
-                        <div class="link-display-box">
-                            <span class="link-text" id="public-booking-url">Configure link handle first</span>
-                            <button type="button" class="copy-btn" id="copy-link-btn" onclick="copyBookingLink()">Copy</button>
-                        </div>
-                    </div>
-                </div>
+                     <div>
+                         <span style="font-size: 0.75rem; font-weight: 700; color: var(--muted-foreground); display: block; text-transform: uppercase; letter-spacing: 0.05em;">Public Booking URL</span>
+                         <div class="link-display-box">
+                             <span class="link-text" id="public-booking-url">Configure link handle first</span>
+                             <button type="button" class="copy-btn" id="copy-link-btn" onclick="copyBookingLink()">Copy</button>
+                         </div>
+                     </div>
+                     <div id="associated-fork-container" style="display: none; margin-top: 0.25rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                         <span style="font-size: 0.75rem; font-weight: 700; color: var(--muted-foreground); display: block; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem;">Connected Fork</span>
+                         <span id="associated-fork-label" style="font-size: 0.85rem; font-weight: 600; color: var(--primary);"></span>
+                     </div>
+                 </div>
             </div>
 
             <!-- Main Panel: Configuration Form -->
@@ -193,7 +197,7 @@
                     eventTypes.forEach(et => {
                         const opt = document.createElement('option');
                         opt.value = et.id;
-                        opt.textContent = `${et.title} (${et.length} mins) - slug: ${et.slug}`;
+                        opt.textContent = `${et.title} (${et.lengthInMinutes || et.length || '30'} mins) - slug: ${et.slug}`;
                         if (String(et.id) === String(selectedId)) {
                             opt.selected = true;
                         }
@@ -286,6 +290,13 @@
                     const linkText = document.getElementById('public-booking-url');
                     linkText.textContent = `${window.location.host}/${user.booking_link}`;
                     linkText.style.color = 'var(--primary)';
+                }
+
+                if (user.associated_role_name) {
+                    document.getElementById('associated-fork-container').style.display = 'block';
+                    document.getElementById('associated-fork-label').textContent = `👥 ${user.associated_role_name}`;
+                } else {
+                    document.getElementById('associated-fork-container').style.display = 'none';
                 }
 
                 // Set calcom event type
