@@ -407,6 +407,10 @@
                         <input type="email" id="guest-email" class="form-control" placeholder="e.g. john@example.com" required>
                     </div>
                     <div class="form-group">
+                        <label for="additional-guests">Additional Guests (optional, comma-separated emails)</label>
+                        <input type="text" id="additional-guests" class="form-control" placeholder="e.g. guest1@example.com, guest2@example.com">
+                    </div>
+                    <div class="form-group">
                         <label for="meeting-title">Meeting Title / Topic</label>
                         <input type="text" id="meeting-title" class="form-control" placeholder="e.g. Partnership Discussion" required>
                     </div>
@@ -881,6 +885,7 @@
             
             const name = document.getElementById('guest-name').value.trim();
             const email = document.getElementById('guest-email').value.trim();
+            const additionalGuests = document.getElementById('additional-guests').value.trim();
             const title = document.getElementById('meeting-title').value.trim();
             const description = document.getElementById('meeting-description').value.trim();
             const notes = document.getElementById('meeting-notes').value.trim();
@@ -901,6 +906,7 @@
                         slot: selectedTimeSlot,
                         name,
                         email,
+                        guests: additionalGuests,
                         title,
                         description,
                         notes,

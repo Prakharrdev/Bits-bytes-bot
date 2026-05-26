@@ -20,17 +20,68 @@ module.exports = {
 		// Check if it's the role picker channel
 		if (reaction.message.channel.name !== 'roles') return;
 
-		const roleName = roleMap[reaction.emoji.name];
-		if (!roleName) return;
+		// If the message is partial, fetch it
+		if (reaction.message.partial) {
+			try {
+				await reaction.message.fetch();
+			} catch (error) {
+				console.error('Something went wrong when fetching the message:', error);
+				return;
+			}
+		}
 
-		const member = await reaction.message.guild.members.fetch(user.id);
-		const role = reaction.message.guild.roles.cache.find(r => r.name === roleName);
+		// 1. Handle Interests picker
+		let roleName = roleMap[reaction.emoji.name];
+		let matchedCity = null;
 
-		if (role) {
-			await member.roles.add(role);
-			console.log(`[ROLES] Added @${roleName} to ${user.tag}`);
-		} else {
-			console.log(`[WARNING] Role @${roleName} not found in guild.`);
+		// 2. Handle City picker
+		const embeds = reaction.message.embeds;
+		if (embeds && embeds.length > 0) {
+			const embed = embeds[0];
+			if (embed && embed.title === '📍 Pick Your City') {
+				const field = embed.fields.find(f => f.name === 'Active Cities');
+				if (field) {
+					const lines = field.value.split('\n');
+					const emojiName = reaction.emoji.name;
+					for (const line of lines) {
+						if (line.includes(emojiName)) {
+							matchedCity = line.replace(emojiName, '').trim();
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		if (!roleName && !matchedCity) return;
+
+		try {
+			const member = await reaction.message.guild.members.fetch(user.id);
+			let role;
+			if (roleName) {
+				role = reaction.message.guild.roles.cache.find(r => r.name === roleName);
+			} else if (matchedCity) {
+				role = reaction.message.guild.roles.cache.find(r => r.name.toLowerCase() === matchedCity.toLowerCase());
+				if (!role) {
+					try {
+						role = await reaction.message.guild.roles.create({
+							name: matchedCity,
+							reason: `Automated creation of community city role for ${matchedCity}`
+						});
+					} catch (err) {
+						console.error(`[ROLES] Failed to create community city role "${matchedCity}":`, err.message);
+					}
+				}
+			}
+
+			if (role) {
+				await member.roles.add(role);
+				console.log(`[ROLES] Added @${role.name} to ${user.tag}`);
+			} else {
+				console.log(`[WARNING] Role for "${roleName || matchedCity}" not found/created in guild.`);
+			}
+		} catch (error) {
+			console.error(`[ROLES] Error adding role:`, error);
 		}
 	},
 };

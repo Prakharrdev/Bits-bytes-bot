@@ -23,6 +23,31 @@ const REDIRECT_URI = process.env.REDIRECT_URI || `http://localhost:${PORT}/auth/
 // Session store: session_id -> user details
 const sessions = new Map();
 
+// Active cities cache
+let activeCitiesCache = null;
+let activeCitiesCacheTimestamp = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getActiveCities() {
+    const now = Date.now();
+    if (activeCitiesCache && (now - activeCitiesCacheTimestamp < CACHE_TTL)) {
+        return activeCitiesCache;
+    }
+    try {
+        const notion = require('./lib/notion');
+        const forks = await notion.getForks().catch(() => []);
+        activeCitiesCache = forks
+            .filter(f => f.properties?.Status?.select?.name === 'Active')
+            .map(f => notion.getCityName(f))
+            .filter(c => c && c !== 'UNKNOWN');
+        activeCitiesCacheTimestamp = now;
+        return activeCitiesCache;
+    } catch (err) {
+        console.error('[CACHE] Failed to refresh active cities:', err.message);
+        return activeCitiesCache || [];
+    }
+}
+
 // Timezone offset mapping
 const OFFSETS = {
     'Asia/Kolkata': '+05:30',
@@ -213,19 +238,18 @@ function startWebServer(client) {
 
                     // Resolve Discord city role for contributor
                     try {
-                        const notion = require('./lib/notion');
-                        const forks = await notion.getForks().catch(() => []);
-                        const activeCities = forks
-                            .filter(f => f.properties?.Status?.select?.name === 'Active')
-                            .map(f => notion.getCityName(f))
-                            .filter(Boolean);
-
-                        const foundCityRole = targetMember.roles.cache.find(r => 
-                            activeCities.some(city => city.toLowerCase() === r.name.toLowerCase())
-                        );
+                        const activeCities = await getActiveCities();
+                        const foundCityRole = targetMember.roles.cache.find(r => {
+                            const rName = r.name.toLowerCase();
+                            return activeCities.some(city => rName === `contributor-${city.toLowerCase()}`);
+                        });
 
                         if (foundCityRole) {
-                            cityRoleName = foundCityRole.name;
+                            cityRoleName = foundCityRole.name.replace(/^contributor-/i, '').trim();
+                            const matchedCity = activeCities.find(c => c.toLowerCase() === cityRoleName.toLowerCase());
+                            if (matchedCity) {
+                                cityRoleName = matchedCity;
+                            }
                             cityRoleId = foundCityRole.id;
                         }
                     } catch (roleErr) {
@@ -378,14 +402,27 @@ function startWebServer(client) {
                     role = 'fork_lead';
                 }
                 
-                const roleIdToCheck = associatedRoleId || (role === 'fork_lead' ? member.roles.cache.find(r => 
-                    r.name.toLowerCase() !== 'contributor' && r.name.toLowerCase() !== 'fork-lead' && r.name.toLowerCase() !== 'everyone'
-                )?.id : null);
+                let roleIdToCheck = associatedRoleId;
+                if (!roleIdToCheck) {
+                    const activeCities = await getActiveCities();
+                    const foundCityRole = member.roles.cache.find(r => {
+                        const rName = r.name.toLowerCase();
+                        return activeCities.some(city => rName === `contributor-${city.toLowerCase()}`);
+                    });
+                    if (foundCityRole) {
+                        roleIdToCheck = foundCityRole.id;
+                    }
+                }
                 
                 if (roleIdToCheck) {
                     const roleObj = guild.roles.cache.get(roleIdToCheck);
                     if (roleObj) {
-                        cityName = roleObj.name;
+                        cityName = roleObj.name.replace(/^contributor-/i, '').trim();
+                        const activeCities = await getActiveCities();
+                        const matchedCity = activeCities.find(c => c.toLowerCase() === cityName.toLowerCase());
+                        if (matchedCity) {
+                            cityName = matchedCity;
+                        }
                     }
                 }
             }
@@ -1050,7 +1087,7 @@ function startWebServer(client) {
 
     app.post('/api/book/:bookingLink', checkAuth, async (req, res) => {
         const { bookingLink } = req.params;
-        const { date, slot, name, email, title, description, notes, duration, additionalHosts, inviteWholeFork, instant } = req.body;
+        const { date, slot, name, email, guests, title, description, notes, duration, additionalHosts, inviteWholeFork, instant } = req.body;
 
         if (instant) {
             if (!name || !email || !title) {
@@ -1131,6 +1168,18 @@ function startWebServer(client) {
             // List of host names for meeting title
             const hostTitles = allHosts.map(h => h.title || h.username).join(', ');
 
+            // Add all external emails (invitee + additional guests from their side)
+            const guestsList = Array.isArray(guests)
+                ? guests
+                : (guests ? guests.split(',').map(e => e.trim().toLowerCase()).filter(Boolean) : []);
+            
+            const allExternalEmails = [email.trim().toLowerCase(), ...guestsList];
+
+            // Resolve which of these external emails correspond to registered Discord users
+            const emailToUserMap = await meetingsDb.findUsersByEmails(allExternalEmails).catch(() => ({}));
+            const matchedAttendeeDiscordIds = Object.values(emailToUserMap);
+            const externalEmails = allExternalEmails.filter(e => !emailToUserMap[e]);
+
             const newMeeting = {
                 id,
                 title: `${hostTitles} <> ${name}: ${title}`,
@@ -1142,7 +1191,7 @@ function startWebServer(client) {
                 bookedBy: req.user.id,
                 status: instant ? 'pending' : 'booking_in_progress',
                 endTime: endTimeMs,
-                externalEmails: [email.trim().toLowerCase()],
+                externalEmails,
                 calcomBookingId: null,
                 calcomUid: null
             };
@@ -1158,6 +1207,13 @@ function startWebServer(client) {
             // Add the authenticated guest as an attendee
             await meetingsDb.addAttendee(id, 'user', req.user.id);
 
+            // Add all matched additional guests from their side as attendees
+            for (const dId of matchedAttendeeDiscordIds) {
+                if (dId !== req.user.id) {
+                    await meetingsDb.addAttendee(id, 'user', dId);
+                }
+            }
+
             // Invite the whole fork if requested and host has role mapping
             for (const host of allHosts) {
                 if (inviteWholeFork && host.associated_role_id) {
@@ -1172,10 +1228,13 @@ function startWebServer(client) {
                 if (calcomEventTypeId && process.env.CALCOM_API_KEY) {
                     try {
                         const calcom = require('./lib/calcom');
-                        // Build guest list: all additional hosts + booker
-                        const guestEmails = allHosts
-                            .filter(h => h.discord_id !== primaryHost.discord_id && h.email)
-                            .map(h => h.email);
+                        // Build guest list: all additional hosts + booker's guests
+                        const guestEmails = [
+                            ...allHosts
+                                .filter(h => h.discord_id !== primaryHost.discord_id && h.email)
+                                .map(h => h.email),
+                            ...guestsList
+                        ];
                         const bookingBody = {
                             eventTypeId: parseInt(calcomEventTypeId, 10),
                             start: new Date(startTimeMs).toISOString(),

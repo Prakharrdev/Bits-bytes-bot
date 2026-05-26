@@ -50,6 +50,47 @@ module.exports = {
 				roleAssigned = false;
 			}
 
+			// Resolve or create contributor role
+			let contributorRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'contributor');
+			if (!contributorRole) {
+				try {
+					contributorRole = await guild.roles.create({
+						name: 'contributor',
+						reason: 'Direct onboard general contributor role creation'
+					});
+				} catch (err) {
+					console.error('[ADMIN_ADD_LEAD] Failed to create contributor role:', err.message);
+				}
+			}
+			if (contributorRole) {
+				try {
+					await member.roles.add(contributorRole);
+				} catch (roleErr) {
+					console.error('[ADMIN_ADD_LEAD] Failed to assign contributor role:', roleErr.message);
+				}
+			}
+
+			// Resolve or create contributor city role
+			let contributorCityRole = guild.roles.cache.find(r => r.name.toLowerCase() === `contributor-${city.toLowerCase()}`);
+			if (!contributorCityRole) {
+				try {
+					contributorCityRole = await guild.roles.create({
+						name: `contributor-${city}`,
+						reason: 'Direct onboard contributor city role creation'
+					});
+				} catch (err) {
+					console.error(`[ADMIN_ADD_LEAD] Failed to create contributor city role "contributor-${city}":`, err.message);
+				}
+			}
+			if (contributorCityRole) {
+				try {
+					await member.roles.add(contributorCityRole);
+				} catch (roleErr) {
+					console.error(`[ADMIN_ADD_LEAD] Failed to assign contributor city role (${city}):`, roleErr.message);
+					roleAssigned = false;
+				}
+			}
+
 			// Resolve or create city role
 			let cityRole = guild.roles.cache.find(r => r.name.toLowerCase() === city.toLowerCase());
 			if (!cityRole) {
@@ -67,7 +108,6 @@ module.exports = {
 					await member.roles.add(cityRole);
 				} catch (roleErr) {
 					console.error(`[ADMIN_ADD_LEAD] Failed to assign city role (${city}):`, roleErr.message);
-					roleAssigned = false;
 				}
 			}
 
@@ -102,15 +142,49 @@ module.exports = {
 			const channelName = `gobitsnbytes-${city.toLowerCase().replace(/\s+/g, '-')}`;
 			
 			const overwrites = [
-				{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-				{ id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+				{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] }
 			];
+
+			if (contributorCityRole) {
+				overwrites.push({
+					id: contributorCityRole.id,
+					allow: [
+						PermissionFlagsBits.ViewChannel,
+						PermissionFlagsBits.SendMessages,
+						PermissionFlagsBits.EmbedLinks,
+						PermissionFlagsBits.AttachFiles,
+						PermissionFlagsBits.ReadMessageHistory
+					]
+				});
+			}
+
+			overwrites.push({
+				id: user.id,
+				allow: [
+					PermissionFlagsBits.ViewChannel,
+					PermissionFlagsBits.SendMessages,
+					PermissionFlagsBits.EmbedLinks,
+					PermissionFlagsBits.AttachFiles,
+					PermissionFlagsBits.ReadMessageHistory,
+					PermissionFlagsBits.ManageMessages,
+					PermissionFlagsBits.ManageChannels,
+					PermissionFlagsBits.ManageWebhooks
+				]
+			});
 
 			const staffRole = getStaffRole(guild);
 			if (staffRole) {
 				overwrites.push({
 					id: staffRole.id,
-					allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+					allow: [
+						PermissionFlagsBits.ViewChannel,
+						PermissionFlagsBits.SendMessages,
+						PermissionFlagsBits.EmbedLinks,
+						PermissionFlagsBits.AttachFiles,
+						PermissionFlagsBits.ReadMessageHistory,
+						PermissionFlagsBits.ManageMessages,
+						PermissionFlagsBits.ManageWebhooks
+					]
 				});
 			}
 

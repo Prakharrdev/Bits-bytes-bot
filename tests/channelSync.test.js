@@ -42,6 +42,8 @@ describe('Channel Permissions Sync Tests', () => {
 
 		// Mock Discord Roles
 		mockCityRole = { id: 'city_role_id', name: 'Delhi' };
+		const mockContributorCityRole = { id: 'contrib_city_role_id', name: 'contributor-Delhi' };
+		const mockContributorRole = { id: 'contributor_role_id', name: 'contributor' };
 		mockForkLeadRole = { id: 'fork_lead_role_id', name: 'fork-lead', position: 10 };
 		mockStaffRole = { id: 'staff_role_id', name: 'staff' };
 
@@ -74,7 +76,7 @@ describe('Channel Permissions Sync Tests', () => {
 			id: '456',
 			roles: {
 				cache: {
-					has: jest.fn().mockReturnValue(false), // Missing city role
+					has: jest.fn().mockReturnValue(false), // Missing all roles
 					some: jest.fn().mockReturnValue(false),
 				},
 				highest: { position: 1 },
@@ -90,7 +92,7 @@ describe('Channel Permissions Sync Tests', () => {
 			id: '789',
 			roles: {
 				cache: {
-					has: jest.fn().mockReturnValue(true), // Has city role
+					has: jest.fn().mockReturnValue(true), // Has all roles
 					some: jest.fn().mockReturnValue(false),
 				},
 				highest: { position: 1 },
@@ -106,7 +108,9 @@ describe('Channel Permissions Sync Tests', () => {
 			id: '999',
 			roles: {
 				cache: {
-					has: jest.fn().mockImplementation((roleId) => roleId === 'city_role_id'), // Has city role but unauthorized
+					has: jest.fn().mockImplementation((roleId) => {
+						return roleId === 'city_role_id' || roleId === 'contrib_city_role_id';
+					}),
 					some: jest.fn().mockReturnValue(false),
 				},
 				highest: { position: 1 },
@@ -124,17 +128,26 @@ describe('Channel Permissions Sync Tests', () => {
 				everyone: { id: 'everyone_role_id' },
 				cache: {
 					find: jest.fn().mockImplementation((fn) => {
-						const dummyCityRole = { name: 'Delhi', id: 'city_role_id' };
-						if (fn(dummyCityRole)) return dummyCityRole;
+						if (fn(mockCityRole)) return mockCityRole;
+						if (fn(mockContributorCityRole)) return mockContributorCityRole;
+						if (fn(mockContributorRole)) return mockContributorRole;
 						return null;
 					}),
 					get: jest.fn().mockImplementation((id) => {
 						if (id === 'fork_lead_role_id') return mockForkLeadRole;
 						if (id === 'staff_role_id') return mockStaffRole;
+						if (id === 'city_role_id') return mockCityRole;
+						if (id === 'contrib_city_role_id') return mockContributorCityRole;
+						if (id === 'contributor_role_id') return mockContributorRole;
 						return null;
 					}),
 				},
-				create: jest.fn().mockResolvedValue(mockCityRole),
+				create: jest.fn().mockImplementation((options) => {
+					if (options.name === 'Delhi') return Promise.resolve(mockCityRole);
+					if (options.name === 'contributor-Delhi') return Promise.resolve(mockContributorCityRole);
+					if (options.name === 'contributor') return Promise.resolve(mockContributorRole);
+					return Promise.resolve({ id: 'new_role_id', name: options.name });
+				}),
 			},
 			members: {
 				fetch: jest.fn().mockResolvedValue(true),
@@ -173,7 +186,7 @@ describe('Channel Permissions Sync Tests', () => {
 		};
 	});
 
-	test('should assign missing City Role to registered team members and remove from unauthorized members', async () => {
+	test('should assign missing City Roles to registered team members and remove from unauthorized members', async () => {
 		const mockTeamMember1 = mockGuild.members.cache.get('456');
 		const mockExtraMember = mockGuild.members.cache.get('999');
 
@@ -181,23 +194,12 @@ describe('Channel Permissions Sync Tests', () => {
 
 		// Assertions
 		expect(mockTeamMember1.roles.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'Delhi' }));
-		expect(mockExtraMember.roles.remove).toHaveBeenCalledWith(expect.objectContaining({ name: 'Delhi' }));
+		expect(mockTeamMember1.roles.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'contributor-Delhi' }));
+		expect(mockTeamMember1.roles.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'contributor' }));
+		expect(mockExtraMember.roles.remove).toHaveBeenCalledWith(expect.objectContaining({ name: 'contributor-Delhi' }));
 	});
 
 	test('should set correct permission overwrites for the channel', async () => {
-		// Mock member role checks inside the loop
-		const mockLeadMember = mockGuild.members.cache.get('123');
-		const mockTeamMember1 = mockGuild.members.cache.get('456');
-		const mockTeamMember2 = mockGuild.members.cache.get('789');
-
-		// Set mock roles.cache.has responses for the cityRole check inside desiredPermissions filter
-		mockLeadMember.roles.cache.has.mockReturnValue(true);
-		mockTeamMember1.roles.cache.has.mockReturnValue(true);
-		mockTeamMember2.roles.cache.has.mockReturnValue(true);
-
-		// Modify team member 1 mock implementation to simulate it now has the city role after assignment
-		mockTeamMember1.roles.cache.has.mockImplementation((roleId) => roleId === 'city_role_id');
-
 		await syncForkPermissions(mockClient, mockFork);
 
 		expect(mockChannel.permissionOverwrites.set).toHaveBeenCalled();
@@ -208,15 +210,14 @@ describe('Channel Permissions Sync Tests', () => {
 		expect(everyoneOver).toBeDefined();
 		expect(everyoneOver.deny).toContain(PermissionFlagsBits.ViewChannel);
 
+		// check contributor-city role is allowed View & Send
+		const contribCityOver = setCallArgs.find(o => o.id === 'contrib_city_role_id');
+		expect(contribCityOver).toBeDefined();
+		expect(contribCityOver.allow).toContain(PermissionFlagsBits.SendMessages);
+
 		// check lead is admin
 		const leadOver = setCallArgs.find(o => o.id === '123');
 		expect(leadOver).toBeDefined();
 		expect(leadOver.allow).toContain(PermissionFlagsBits.ManageChannels);
-
-		// check team member 1 is member
-		const member1Over = setCallArgs.find(o => o.id === '456');
-		expect(member1Over).toBeDefined();
-		expect(member1Over.allow).toContain(PermissionFlagsBits.SendMessages);
-		expect(member1Over.allow).not.toContain(PermissionFlagsBits.ManageChannels);
 	});
 });
