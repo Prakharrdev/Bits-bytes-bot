@@ -746,6 +746,7 @@ bits-bytes-bot/
 
 | Date | Bug | Fix |
 |------|-----|-----|
+| 2026-05-26 | External Guest Auto-Linkage | Added automated resolution of external guest emails to Discord IDs on OAuth callback, migrating them to attendees and granting Discord VC permissions |
 | 2026-05-26 | Roles Hierarchy & Reaction Roles Refactor | Mapped separate community city role vs contributor-city role, implemented dynamic city picker embed in #roles, updated permission syncing to role-level overwrites, and refactored OAuth callback/onboarding commands |
 | 2026-05-26 | UI Craft & Motion Polish | Implemented Cal.com-style inline scheduling form transitions, grid-based height animations for collapsible sections/forms, and color/typography polish |
 | 2026-05-26 | Role Scoping & Dynamic Routing | Implemented dynamic fork routing, collapsible role menus, and fine-grained scoped instant meets |

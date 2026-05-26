@@ -311,6 +311,62 @@ function startWebServer(client) {
                 }
             }
 
+            // If user has an email, find meetings where they were invited as an external guest
+            if (userData.email) {
+                try {
+                    const userEmail = userData.email.trim().toLowerCase();
+                    const pendingMeetings = await db.all(
+                        `SELECT id, temp_channel_id, external_emails FROM meetings 
+                         WHERE status != 'cancelled' 
+                           AND external_emails LIKE '%' || ? || '%'`,
+                        [userEmail]
+                    );
+
+                    for (const meet of pendingMeetings) {
+                        let parsedEmails = [];
+                        try {
+                            parsedEmails = JSON.parse(meet.external_emails || '[]');
+                        } catch (e) {
+                            parsedEmails = [];
+                        }
+
+                        if (parsedEmails.some(e => e.toLowerCase() === userEmail)) {
+                            // 1. Add as a user attendee
+                            await meetingsDb.addAttendee(meet.id, 'user', userData.id).catch(() => {});
+
+                            // 2. Remove email from external_emails JSON array
+                            const newExternal = parsedEmails.filter(e => e.toLowerCase() !== userEmail);
+                            await db.run(
+                                `UPDATE meetings SET external_emails = ? WHERE id = ?`,
+                                [JSON.stringify(newExternal), meet.id]
+                            ).catch(() => {});
+
+                            // 3. Grant permission to see/connect to the VC channel if provisioned
+                            if (meet.temp_channel_id) {
+                                try {
+                                    const targetGuildId = process.env.GUILD_ID || '1480617556292272260';
+                                    const targetGuild = client.guilds.cache.get(targetGuildId) || await client.guilds.fetch(targetGuildId).catch(() => null);
+                                    if (targetGuild) {
+                                        const vcChannel = targetGuild.channels.cache.get(meet.temp_channel_id);
+                                        if (vcChannel) {
+                                            await vcChannel.permissionOverwrites.edit(userData.id, {
+                                                ViewChannel: true,
+                                                Connect: true,
+                                                Speak: true
+                                            }, { reason: 'External guest authenticated with Discord' }).catch(() => {});
+                                        }
+                                    }
+                                } catch (permErr) {
+                                    console.warn('[AUTH_CALLBACK] Failed to update VC permissions for guest:', permErr.message);
+                                }
+                            }
+                        }
+                    }
+                } catch (pendingErr) {
+                    console.error('[AUTH_CALLBACK] Failed to resolve pending guest meetings:', pendingErr.message);
+                }
+            }
+
             // Retrieve return destination
             const returnTo = req.cookies.auth_return_to || '/dashboard';
             res.clearCookie('auth_return_to');
