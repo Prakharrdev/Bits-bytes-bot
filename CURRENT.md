@@ -539,7 +539,7 @@ The dashboard pulls data from:
 ## 🎙️ Feature 9: Meeting Scheduler & Voice Agent
 
 ### Description
-Exposes a web scheduling portal (`cal.gobnb.org`) for members to book sync sessions, links bookings with Cal.com/Google Calendar, provisions temporary Discord Voice Channels, plays legal consent warnings, records the audio, transcribes it with Gemini, and delivers formatted briefs.
+Exposes a web scheduling portal (`cal.gobnb.org`) for members to book sync sessions, links bookings with Cal.com/Google Calendar, provisions temporary Discord Voice Channels, plays legal consent warnings, records the audio, transcribes it with Gemini, and delivers formatted briefs. Also includes a meeting landing/reschedule interface, contributor instant meeting launcher, Web Push notification architecture, and Discord avatar synchronization.
 
 ### Key Workflows
 1. **Web Scheduler Portal (`cal.gobnb.org`):**
@@ -549,18 +549,40 @@ Exposes a web scheduling portal (`cal.gobnb.org`) for members to book sync sessi
    - Enforces Discord OAuth2 authentication for all guest bookings, automatically adding them to the server (via `guilds.join` scope), resolving their Discord IDs, and locking pre-filled details.
    - Implements database-backed session cookie persistence (`web_sessions` table) to withstand bot restarts, along with Express `trust proxy` configuration and dynamic secure cookie handling for Nginx reverse proxies.
    - Implements direct "⚡ Request Instant Meet" buttons triggering direct Discord DMs with interactive Accept/Decline action controls.
-2. **Discord Voice Provisioning:**
+   - **Discord Avatar Integration:** Extracts the user's avatar image hash during OAuth authentication, saves it to `user_availability` and session tables, and displays high-quality Discord profile photos on the scheduler cards.
+2. **Meeting Landing Page (`/m/{meet-code}`):**
+   - Implements a Google Meet-style unique room locator (`xyz-abcd-pqr`) stored securely in Turso DB.
+   - Features a custom developer-themed landing UI with:
+     - Real-time details (title, host names, start time, description).
+     - Active participant avatars and names.
+     - Live voice channel member polling to show who is currently inside the VC.
+     - Direct "Join Voice Channel" launcher linking directly to the Discord app client.
+3. **Meeting Rescheduler:**
+   - Adds a "Reschedule Meeting" interface directly on the meeting landing card.
+   - Allows either the meeting host (`creator_id`) or the meeting booker (`booked_by`, including external guest users) to reschedule the meeting to a different slot up to a maximum limit of **3 times**.
+   - Enforces slot availability checks, validates the reschedule limit, and registers the reschedule reason.
+   - Triggers automated notifications to all attendees across multiple channels:
+     - **Web Push Notifications:** Real-time system banners delivered to users who opted-in.
+     - **Discord DMs:** Rich embeds listing the change, reason, and a direct meeting page link.
+     - **SMTP Email:** Fully structured HTML emails showing the old/new times, reason, and a join CTA.
+4. **Instant Meeting Launcher:**
+   - Features an "⚡ Instant Meeting" provisioning section on the scheduling homepage (visible only to authenticated contributors).
+   - Allows users to type a title and set the scope:
+     - `Open`: Anyone on the server can join the provisioned voice channel.
+     - `Invite-only`: Restricted to invited hosts and guests.
+   - Automatically provisions the voice channel, DMs all invitees with an active join alert, and outputs a shareable meeting page URL.
+5. **Discord Voice Provisioning:**
    - Automatically provisions a temporary VC channel under the `EVENTS` category.
    - Explicitly adds the bot client ID to channel overrides to prevent voice lockout during E2E encryption handshakes.
    - Triggers voice join callbacks that announce meeting commencement and self-starts the audio recorder.
-3. **Legal Recording Consent:**
+6. **Legal Recording Consent:**
    - Plays audio warning notices (in English and Hindi) on VC join.
    - Features a safety timeout of `90_000` ms to ensure long text notices are not cut off.
    - Sends direct text notices to late joiners in the VC chat with language translation toggle buttons.
-4. **Recording & Gemini Transcription:**
+7. **Recording & Gemini Transcription:**
    - Subscribes to Opus audio streams, decodes, and records audio packets with valid header CRC checksums to prevent FFmpeg mismatches.
    - Merges separate speaker segments, uploads them to the Google File API, and utilizes `gemini-3.5-flash` to extract a speaker-labeled Hinglish/English transcript and JSON briefs.
-5. **DM Briefs Delivery:**
+8. **DM Briefs Delivery:**
    - Matches invitee and host emails to registered Discord profiles and registers them in database tables.
    - Formats a summary, key decisions, and action items inside a Discord Embed and DMs it directly to all attendees along with the full transcript as a `.txt` file attachment.
 
@@ -576,17 +598,22 @@ Manually mark a meeting as active, DM any missing invitees, and start recording 
 Query the database for past sync sessions and retrieve/DM meeting notes.
 
 ### Files
-- `server.js` - Schedulers API, OAuth callback, cookie persistence, instant meet handles
+- `server.js` - Schedulers API, OAuth callback, cookie persistence, instant meet handles, meeting page endpoints, push registration
 - `webhookServer.js` - Cal.com instant booking webhook sync and matched attendee registry
 - `public/book.html` - Three-column split view booking page, dynamic slots, smooth scroll
 - `public/dashboard.html` - Member profile, bio, timezone, and relative grid availability
-- `public/style.css` - Global theme tokens and mobile media query rules
+- `public/meet.html` - Developer-themed meeting landing page with rescheduling form, attendee avatars, live polling, and join CTA
+- `public/style.css` - Global theme tokens, mobile media query rules, meeting page cards, instant launcher sections
+- `public/sw.js` - Service worker handling offline caching, static assets, and background Web Push notification receipts
 - `lib/voiceRecorder.js` - Discord voice connection, consent audio loops (90s limit), segments recording
 - `lib/transcriptionPipeline.js` - Merge audio streams, query Gemini, clean up Google File API files
 - `lib/transcriptDelivery.js` - Build summary embeds and DM attendees
+- `lib/pushNotifier.js` - Web Push notifications delivery framework utilizing `web-push`
 - `commands/meet-schedule.js` - Schedule command
 - `commands/meet-start.js` - Start command
 - `commands/meet-transcript.js` - Retrieval command
+
+---
 
 ---
 
@@ -612,6 +639,11 @@ NOTION_REMINDERS_DB=     # Smart reminders tracking database
 
 # Fork Handbook
 FORK_HANDBOOK_URL=https://www.notion.so/33949ed2fc33818ba073ffa2d815bf1a?v=33949ed2fc3380ccbfe2000c860aa29a&source=copy_link
+
+# Web Push Notifications (VAPID)
+VAPID_PUBLIC_KEY=        # VAPID public key
+VAPID_PRIVATE_KEY=       # VAPID private key
+VAPID_SUBJECT=mailto:hello@gobitsnbytes.org
 ```
 
 ### Required Notion Databases
@@ -681,9 +713,17 @@ bits-bytes-bot/
 │   ├── healthScore.js ✅
 │   ├── notion.js (extended)
 │   ├── onboarding.js ✅
+│   ├── pushNotifier.js ✅
 │   ├── roles.js (existing)
 │   ├── smartReminders.js ✅
 │   └── teamValidator.js ✅
+├── public/
+│   ├── book.html ✅
+│   ├── dashboard.html ✅
+│   ├── index.html (extended)
+│   ├── meet.html ✅
+│   ├── style.css (extended)
+│   └── sw.js ✅
 ├── config.js
 ├── index.js
 └── plan.md
@@ -696,9 +736,9 @@ bits-bytes-bot/
 1. Clone the repository
 2. Copy `.env.example` to `.env` and fill in values
 3. Create required Notion databases
-4. Run `npm install`
+4. Run `npm install` or `pnpm install`
 5. Run `node deploy-commands.js` to register slash commands
-6. Run `node index.js` to start the bot
+6. Run `node index.js` or `pnpm start` to start the bot
 
 ---
 
@@ -706,6 +746,7 @@ bits-bytes-bot/
 
 | Date | Bug | Fix |
 |------|-----|-----|
+| 2026-05-26 | SQLite ALTER TABLE UNIQUE bug | Splitted `ALTER TABLE ADD COLUMN meet_code TEXT UNIQUE` into ADD COLUMN + CREATE UNIQUE INDEX |
 | 2026-04-29 | Report reminder overdue logic | Fixed date comparison - now checks on 1st of new month for missed reports |
 | 2026-04-29 | Event description optional | Made description required per spec |
 | 2026-04-29 | Missing NOTION_REMINDERS_DB | Added to .env.example |
@@ -714,4 +755,4 @@ bits-bytes-bot/
 
 ---
 
-*Last Updated: April 29, 2026*
+*Last Updated: May 26, 2026*

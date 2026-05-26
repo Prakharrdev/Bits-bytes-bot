@@ -94,6 +94,7 @@ This is production-critical software. Access control and data privacy guidelines
 *   **No Code Side-Effects**: Always catch errors at the handler boundaries (e.g. inside `commands` or `jobs`) so that one failing module doesn't block other operational loops.
 *   **No Raw SQLite string interpolation**: Use parameterized query arrays (e.g. `db.run(sql, [param1, param2])`) to completely prevent SQL injection attacks.
 *   **Semantic Versioning**: Always bump the version string in `package.json` and config if introducing new major releases or API revisions.
+*   **Documentation Maintenance**: Always write to/update the relevant markdown documentation files (`.md` files such as `CURRENT.md`, `README.md`, `DESIGN.md`) after making code changes or commits to ensure the documentation stays in lockstep with the codebase state.
 
 ---
 
