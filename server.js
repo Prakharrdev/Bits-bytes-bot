@@ -288,10 +288,7 @@ function startWebServer(client) {
 
             // Write record or update username in user_availability table ONLY if they are a contributor (host)
             if (hasContributorRole) {
-                let defaultTitle = userData.username;
-                if (cityRoleName) {
-                    defaultTitle = `Fork ${cityRoleName}`;
-                }
+                let defaultTitle = userData.global_name || userData.username;
 
                 const existingUser = await db.get(`SELECT 1 FROM user_availability WHERE discord_id = ?`, [userData.id]);
                 if (!existingUser) {

@@ -270,10 +270,11 @@
 
                     let forksHtml = '';
                     Object.entries(forksMap).forEach(([city, cityUsers]) => {
+                        const filteredCityUsers = cityUsers.filter(u => u.role === 'fork_lead');
                         forksHtml += `
                             <div style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 1rem;">
                                 <h3 style="font-size: 1rem; margin-bottom: 1rem; color: var(--muted-foreground);">📍 ${city} Fork</h3>
-                                <div class="users-grid">${cityUsers.map(renderUserCard).join('')}</div>
+                                <div class="users-grid">${filteredCityUsers.map(renderUserCard).join('')}</div>
                             </div>
                         `;
                     });
