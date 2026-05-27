@@ -21,7 +21,7 @@ describe('Auth Layer Tests', () => {
 	let mockGuild;
 	let mockMember;
 
-	const STAFF_ROLE_ID = process.env.STAFF_ROLE_ID || '1506019068132462804';
+	const STAFF_ROLE_ID = process.env.STAFF_ROLE_ID || '1506323726223016149';
 	const FORK_LEAD_ROLE_ID = process.env.FORK_LEAD_ROLE_ID || '1490410901147488286';
 
 	beforeEach(() => {
