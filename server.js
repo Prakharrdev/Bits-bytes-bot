@@ -1391,7 +1391,8 @@ function startWebServer(client) {
                             .setDescription(`**${name}** (\`${email}\`) is requesting an instant sync session with you.`)
                             .addFields(
                                 { name: '📋 TITLE', value: newMeeting.title, inline: false },
-                                { name: '⏱️ DURATION', value: `${selectedDuration} minutes`, inline: true }
+                                { name: '⏱️ DURATION', value: `${selectedDuration} minutes`, inline: true },
+                                { name: '🔐 VC ACCESS SCOPE', value: `\`${resolvedScope}\``, inline: true }
                             )
                             .setColor('#ff7a1b')
                             .setTimestamp()
@@ -1489,7 +1490,8 @@ function startWebServer(client) {
                                     { name: '📅 TIME (IST)', value: `\`${istTimeString}\` (<t:${Math.floor(startTimeMs / 1000)}:F>)`, inline: false },
                                     { name: '🌐 LOCATION', value: vcChannel ? `🔊 [Join Voice Channel](${vcLink})` : 'Discord Temporary Voice Channel', inline: true },
                                     { name: '👥 HOSTS', value: hostMentions, inline: true },
-                                    { name: '✉️ BOOKER', value: `\`${name} (${email})\``, inline: true }
+                                    { name: '✉️ BOOKER', value: `\`${name} (${email})\``, inline: true },
+                                    { name: '🔐 VC ACCESS SCOPE', value: `\`${resolvedScope}\``, inline: true }
                                 )
                                 .setColor('#FFFFFF')
                                 .setTimestamp()

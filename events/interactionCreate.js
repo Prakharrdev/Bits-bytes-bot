@@ -168,7 +168,8 @@ module.exports = {
 								.setColor(config.COLORS.primary)
 								.addFields(
 									{ name: '📋 TITLE', value: meeting.title, inline: false },
-									{ name: '👥 INVITEES', value: tags || 'None', inline: false }
+									{ name: '👥 INVITEES', value: tags || 'None', inline: true },
+									{ name: '🔐 VC ACCESS', value: `\`${meeting.scope || 'invite'}\``, inline: true }
 								)
 								.setTimestamp()
 								.setFooter({ text: config.BRANDING.footerText });
