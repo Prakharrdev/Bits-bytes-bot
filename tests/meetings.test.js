@@ -150,6 +150,7 @@ describe('Slash Command: /meet-schedule Authorization', () => {
 			roles: {
 				cache: {
 					has: jest.fn().mockReturnValue(false),
+					some: jest.fn().mockReturnValue(false),
 				},
 			},
 			permissions: {
@@ -345,6 +346,10 @@ describe('meetingsHelper.createMeetingVoiceChannel Permissions', () => {
 	beforeEach(() => {
 		mockGuild = {
 			id: 'guild_123',
+			members: {
+				fetch: jest.fn().mockResolvedValue({}),
+				cache: { filter: jest.fn().mockReturnValue({ forEach: jest.fn(), size: 0 }) }
+			},
 			roles: {
 				everyone: { id: 'everyone_role_id' },
 				cache: {
@@ -355,6 +360,7 @@ describe('meetingsHelper.createMeetingVoiceChannel Permissions', () => {
 					find: jest.fn().mockImplementation((fn) => {
 						const dummyRoles = [
 							{ id: 'contrib_role_123', name: 'contributor' },
+							{ id: 'hq_role_456', name: 'hq' },
 							{ id: 'staff_role_id', name: 'Staff' }
 						];
 						return dummyRoles.find(fn);
@@ -378,16 +384,10 @@ describe('meetingsHelper.createMeetingVoiceChannel Permissions', () => {
 				})
 			}
 		};
-
-		const db = require('../lib/db');
-		jest.spyOn(db, 'get').mockResolvedValue({ associated_role_id: 'creator_fork_role_id' });
 	});
 
 	afterEach(() => {
-		const db = require('../lib/db');
-		if (db.get.mockRestore) {
-			db.get.mockRestore();
-		}
+		jest.restoreAllMocks();
 	});
 
 	test('should configure overwrites for contributor role and fork role on open scope', async () => {
@@ -413,14 +413,18 @@ describe('meetingsHelper.createMeetingVoiceChannel Permissions', () => {
 		expect(everyoneOverwrite).toBeDefined();
 		expect(everyoneOverwrite.deny).toContain(PermissionFlagsBits.ViewChannel);
 
-		// Should allow general contributor role
+		// Should allow general contributor role (open = contributors + hq)
 		const contributorOverwrite = overwrites.find(o => o.id === 'contrib_role_123');
 		expect(contributorOverwrite).toBeDefined();
 		expect(contributorOverwrite.allow).toContain(PermissionFlagsBits.ViewChannel);
 
-		// Should allow creator's associated fork role
+		// Should also allow the hq role (open includes Foundation team)
+		const hqOverwrite = overwrites.find(o => o.id === 'hq_role_456');
+		expect(hqOverwrite).toBeDefined();
+		expect(hqOverwrite.allow).toContain(PermissionFlagsBits.ViewChannel);
+
+		// Should NOT add creator's specific fork role anymore (that was old incorrect behaviour)
 		const forkOverwrite = overwrites.find(o => o.id === 'creator_fork_role_id');
-		expect(forkOverwrite).toBeDefined();
-		expect(forkOverwrite.allow).toContain(PermissionFlagsBits.ViewChannel);
+		expect(forkOverwrite).toBeUndefined();
 	});
 });

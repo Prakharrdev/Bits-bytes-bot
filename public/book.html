@@ -418,16 +418,37 @@
                         <label for="meeting-description">Brief Description / Agenda</label>
                         <textarea id="meeting-description" class="form-control" placeholder="What would you like to discuss?"></textarea>
                     </div>
-                     <div class="form-group">
-                        <label for="meeting-scope">Access Scope</label>
-                        <select id="meeting-scope" class="form-control">
-                            <option value="invite">Invite Only</option>
-                            <option value="open">Open (All Contributors)</option>
-                            <option value="tech">Tech Council</option>
-                            <option value="creative">Creative Council</option>
-                            <option value="ops">Ops Council</option>
-                            <option value="outreach">Outreach Council</option>
+                     <div class="form-group" id="scope-group">
+                        <label>Meeting Access Scope</label>
+
+                        <!-- Level 1: Audience type -->
+                        <select id="scope-audience" class="form-control" style="margin-bottom: 0.6rem;">
+                            <option value="invite">🔒 Invite Only — explicit attendees only</option>
+                            <option value="open">🌐 Open — all BnB members (contributors + HQ)</option>
+                            <option value="hq">🏛️ HQ Only — Foundation team members</option>
+                            <option value="fork">📍 Specific Fork — one city's entire team</option>
+                            <option value="network">🌐 Cross-Network Track — one track across all forks</option>
+                            <option value="fork-track">🔬 Fork + Track — one city's specific track (precise)</option>
                         </select>
+
+                        <!-- Level 2a: City selector (shown for fork / fork-track) -->
+                        <select id="scope-city" class="form-control" style="display:none; margin-bottom: 0.6rem;">
+                            <option value="">Loading forks...</option>
+                        </select>
+
+                        <!-- Level 2b: Track selector (shown for network / fork-track) -->
+                        <select id="scope-track" class="form-control" style="display:none;">
+                            <option value="tech">💻 Tech</option>
+                            <option value="creative">🎨 Creative</option>
+                            <option value="ops">⚙️ Ops</option>
+                            <option value="outreach">📣 Outreach</option>
+                        </select>
+
+                        <!-- Composed scope display -->
+                        <p id="scope-preview" style="font-size:0.78rem; color: var(--muted-foreground); margin-top:0.5rem; font-family: monospace;"></p>
+
+                        <!-- Hidden field sent with form -->
+                        <input type="hidden" id="meeting-scope" value="invite">
                     </div>
                     <div class="form-group">
                         <label for="meeting-notes">Meeting Notes / Special Instructions</label>
@@ -1021,7 +1042,83 @@
             }
         }
 
+        // ── Scope selector logic ──────────────────────────────────────────────
+        let availableForks = [];
+
+        async function loadForks() {
+            try {
+                const res = await fetch('/api/forks');
+                if (res.ok) {
+                    availableForks = await res.json();
+                    const citySelect = document.getElementById('scope-city');
+                    citySelect.innerHTML = availableForks.length
+                        ? availableForks.map(c => `<option value="${c}">${c.charAt(0).toUpperCase() + c.slice(1)}</option>`).join('')
+                        : '<option value="">No active forks</option>';
+                }
+            } catch { /* non-fatal */ }
+        }
+
+        function updateScopeUI() {
+            const audience = document.getElementById('scope-audience').value;
+            const citySelect = document.getElementById('scope-city');
+            const trackSelect = document.getElementById('scope-track');
+            const preview = document.getElementById('scope-preview');
+            const hidden = document.getElementById('meeting-scope');
+
+            const showCity = audience === 'fork' || audience === 'fork-track';
+            const showTrack = audience === 'network' || audience === 'fork-track';
+
+            citySelect.style.display = showCity ? 'block' : 'none';
+            trackSelect.style.display = showTrack ? 'block' : 'none';
+
+            let scopeVal, label;
+            const city = document.getElementById('scope-city').value;
+            const track = document.getElementById('scope-track').value;
+
+            switch (audience) {
+                case 'invite':
+                    scopeVal = 'invite';
+                    label = '🔒 Invite only — only explicit attendees can join';
+                    break;
+                case 'open':
+                    scopeVal = 'open';
+                    label = '🌐 Open — all contributors + HQ members';
+                    break;
+                case 'hq':
+                    scopeVal = 'hq';
+                    label = '🏛️ HQ — Foundation team only';
+                    break;
+                case 'fork':
+                    scopeVal = city ? `fork:${city}` : 'invite';
+                    label = city ? `📍 Entire ${city} fork` : '— pick a fork above';
+                    break;
+                case 'network':
+                    scopeVal = `network:${track}`;
+                    label = `🌐 All ${track} members across every fork`;
+                    break;
+                case 'fork-track':
+                    scopeVal = (city && track) ? `fork:${city}:${track}` : 'invite';
+                    label = (city && track)
+                        ? `🔬 ${city} fork — ${track} team only (precise intersection)`
+                        : '— pick a fork and track above';
+                    break;
+                default:
+                    scopeVal = 'invite';
+                    label = '';
+            }
+
+            hidden.value = scopeVal;
+            preview.textContent = scopeVal !== 'invite' ? `→ scope: ${scopeVal}` : '';
+        }
+
+        document.getElementById('scope-audience').addEventListener('change', updateScopeUI);
+        document.getElementById('scope-city').addEventListener('change', updateScopeUI);
+        document.getElementById('scope-track').addEventListener('change', updateScopeUI);
+        updateScopeUI(); // set initial state
+        // ─────────────────────────────────────────────────────────────────────
+
         loadHostDetails();
+        loadForks();
         checkUserSession();
     </script>
 </body>

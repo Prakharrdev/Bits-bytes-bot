@@ -65,28 +65,42 @@ module.exports = {
 					{ name: '15 minutes', value: 15 },
 					{ name: '30 minutes', value: 30 },
 					{ name: '45 minutes', value: 45 }
-				)),
+				))
+		.addStringOption(option =>
+			option.setName('scope')
+				.setDescription('Who can join the VC? e.g. open, hq, fork:delhi, network:tech, fork:delhi:tech')
+				.setRequired(false)
+				.setAutocomplete(true)),
 
 	async execute(interaction) {
 		const { isStaff, getForkLeadRole } = require('../lib/auth');
 		const member = await interaction.guild.members.fetch(interaction.user.id);
-		
-		const staffCheck = isStaff(member, interaction.guild);
-		const forkLeadRole = getForkLeadRole(interaction.guild);
-		const isForkLead = forkLeadRole && member.roles.cache.has(forkLeadRole.id);
-		
-		const isAuthorized = staffCheck || isForkLead || member.permissions.has('Administrator');
-		
-		if (!isAuthorized) {
+
+		// Any BnB member can schedule — check for at least one membership role
+		// (contributor, contributor-{city}, hq, fork-lead, staff, admin)
+		const hasMembershipRole = (
+			member.permissions.has('Administrator') ||
+			isStaff(member, interaction.guild) ||
+			(() => {
+				const forkLeadRole = getForkLeadRole(interaction.guild);
+				return forkLeadRole && member.roles.cache.has(forkLeadRole.id);
+			})() ||
+			member.roles.cache.some(r => {
+				const n = r.name.toLowerCase();
+				return n === 'contributor' || n === 'hq' || n.startsWith('contributor-');
+			})
+		);
+
+		if (!hasMembershipRole) {
 			const unauthorizedEmbed = new EmbedBuilder()
 				.setTitle(`${config.EMOJIS.error} PROTOCOL_UNAUTHORIZED`)
-				.setDescription('Your credentials do not grant access to schedule meetings.')
+				.setDescription('You need to be a registered BnB team member to schedule meetings.')
 				.setColor(config.COLORS.error)
 				.setFooter({ text: config.BRANDING.footerText });
 
-			return await interaction.reply({ 
-				embeds: [unauthorizedEmbed], 
-				flags: [MessageFlags.Ephemeral] 
+			return await interaction.reply({
+				embeds: [unauthorizedEmbed],
+				flags: [MessageFlags.Ephemeral]
 			});
 		}
 
@@ -105,6 +119,7 @@ module.exports = {
 			const instant = interaction.options.getBoolean('instant') || false;
 			const externalEmailsStr = interaction.options.getString('external-emails') || '';
 			const duration = interaction.options.getInteger('duration') || 30;
+			const scope = interaction.options.getString('scope') || 'invite';
 
 			let scheduledTime;
 			if (instant || (!dateStr && !timeStr)) {
@@ -217,7 +232,8 @@ module.exports = {
 				status: initialStatus,
 				calcomBookingId,
 				endTime,
-				externalEmails
+				externalEmails,
+				scope
 			});
 
 			for (const att of attendeesToAdd) {
@@ -323,7 +339,49 @@ module.exports = {
 
 	async autocomplete(interaction) {
 		const focusedOption = interaction.options.getFocused(true);
-		
+
+		if (focusedOption.name === 'scope') {
+			// Build scope suggestions dynamically from guild roles
+			const staticScopes = [
+				{ name: 'invite — Explicit invitees only', value: 'invite' },
+				{ name: 'open — All BnB members (contributors + HQ)', value: 'open' },
+				{ name: 'hq — Foundation team only', value: 'hq' },
+				{ name: 'network:tech — All tech members across forks', value: 'network:tech' },
+				{ name: 'network:creative — All creative members across forks', value: 'network:creative' },
+				{ name: 'network:ops — All ops members across forks', value: 'network:ops' },
+				{ name: 'network:outreach — All outreach members across forks', value: 'network:outreach' },
+				{ name: 'network:tech-lead — All tech leads (cross-fork council)', value: 'network:tech-lead' },
+				{ name: 'network:creative-lead — All creative leads', value: 'network:creative-lead' },
+				{ name: 'network:ops-lead — All ops leads', value: 'network:ops-lead' },
+				{ name: 'network:outreach-lead — All outreach leads', value: 'network:outreach-lead' },
+			];
+
+			// Add fork-specific scopes from guild city roles
+			const guild = interaction.guild;
+			const cityRoles = guild.roles.cache
+				.filter(r => r.name.toLowerCase().startsWith('contributor-'))
+				.map(r => r.name.toLowerCase().replace('contributor-', ''));
+
+			for (const city of cityRoles) {
+				const cap = city.charAt(0).toUpperCase() + city.slice(1);
+				staticScopes.push({ name: `fork:${city} — Entire ${cap} fork`, value: `fork:${city}` });
+				for (const track of ['tech', 'creative', 'ops', 'outreach']) {
+					staticScopes.push({
+						name: `fork:${city}:${track} — ${cap} fork ${track} team only`,
+						value: `fork:${city}:${track}`
+					});
+				}
+			}
+
+			const query = focusedOption.value.toLowerCase();
+			const filtered = query
+				? staticScopes.filter(s => s.value.includes(query) || s.name.toLowerCase().includes(query))
+				: staticScopes;
+
+			await interaction.respond(filtered.slice(0, 25)).catch(() => {});
+			return;
+		}
+
 		if (focusedOption.name === 'date') {
 			const choices = [];
 			

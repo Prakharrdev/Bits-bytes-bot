@@ -608,6 +608,26 @@ function startWebServer(client) {
         }
     });
 
+    // Returns the list of active fork city slugs for the scope selector UI
+    app.get('/api/forks', async (req, res) => {
+        try {
+            const notion = require('./lib/notion');
+            const forks = await notion.getForks();
+            const activeForks = forks
+                .filter(f => f.properties?.Status?.select?.name === 'Active')
+                .map(f => {
+                    const city = notion.getCityName(f);
+                    return city && city !== 'UNKNOWN' ? city.toLowerCase().replace(/\s+/g, '-') : null;
+                })
+                .filter(Boolean)
+                .sort();
+            res.json(activeForks);
+        } catch (err) {
+            console.error('[API_FORKS_ERROR]', err);
+            res.status(500).json({ error: 'Failed to fetch forks' });
+        }
+    });
+
     // Helper to pick the right Cal.com event type ID based on meeting duration
     function getCalcomEventTypeId(duration) {
         const d = parseInt(duration, 10);
@@ -1154,6 +1174,22 @@ function startWebServer(client) {
 
         const selectedDuration = parseInt(duration || 30, 10);
 
+        // Sanitize and validate scope — only allow well-formed scope strings
+        // Format: invite | open | hq | fork:{slug} | network:{track} | fork:{slug}:{track}
+        const VALID_TRACKS = ['tech', 'creative', 'ops', 'outreach', 'tech-lead', 'creative-lead', 'ops-lead', 'outreach-lead'];
+        const CITY_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$|^[a-z0-9]$/;
+        function validateScope(raw) {
+            if (!raw || raw === 'invite') return 'invite';
+            if (raw === 'open' || raw === 'hq') return raw;
+            const parts = raw.split(':');
+            if (parts[0] === 'network' && parts.length === 2 && VALID_TRACKS.includes(parts[1])) return raw;
+            if (parts[0] === 'fork' && parts.length === 2 && CITY_SLUG_RE.test(parts[1])) return raw;
+            if (parts[0] === 'fork' && parts.length === 3 && CITY_SLUG_RE.test(parts[1]) && VALID_TRACKS.slice(0, 4).includes(parts[2])) return raw;
+            console.warn(`[API_BOOK] Invalid scope value rejected: "${raw}". Defaulting to invite.`);
+            return 'invite';
+        }
+        const resolvedScope = validateScope(typeof scope === 'string' ? scope.trim().toLowerCase() : null);
+
         try {
             const primaryHost = await db.get(`SELECT * FROM user_availability WHERE booking_link = ?`, [bookingLink]);
             if (!primaryHost) {
@@ -1247,7 +1283,7 @@ function startWebServer(client) {
                 externalEmails,
                 calcomBookingId: null,
                 calcomUid: null,
-                scope: scope || 'invite'
+                scope: resolvedScope
             };
 
             // Write the hold lock meeting record to database immediately to block concurrent bookings!
