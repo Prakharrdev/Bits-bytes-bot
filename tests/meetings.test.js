@@ -338,3 +338,89 @@ describe('Slash Command: /meet-start', () => {
 		expect(retrieved.status).toBe('active');
 	});
 });
+
+describe('meetingsHelper.createMeetingVoiceChannel Permissions', () => {
+	let mockGuild;
+
+	beforeEach(() => {
+		mockGuild = {
+			id: 'guild_123',
+			roles: {
+				everyone: { id: 'everyone_role_id' },
+				cache: {
+					get: jest.fn().mockImplementation((id) => {
+						if (id === 'staff_role_id') return { id: 'staff_role_id', name: 'Staff' };
+						return null;
+					}),
+					find: jest.fn().mockImplementation((fn) => {
+						const dummyRoles = [
+							{ id: 'contrib_role_123', name: 'contributor' },
+							{ id: 'staff_role_id', name: 'Staff' }
+						];
+						return dummyRoles.find(fn);
+					})
+				}
+			},
+			client: {
+				user: { id: 'bot_client_id' }
+			},
+			channels: {
+				cache: {
+					get: jest.fn(),
+					find: jest.fn().mockReturnValue({ id: 'events_category_id', name: 'EVENTS', type: 4 })
+				},
+				create: jest.fn().mockImplementation(async (options) => {
+					return {
+						id: 'new_vc_channel_id',
+						name: options.name,
+						permissionOverwrites: options.permissionOverwrites
+					};
+				})
+			}
+		};
+
+		const db = require('../lib/db');
+		jest.spyOn(db, 'get').mockResolvedValue({ associated_role_id: 'creator_fork_role_id' });
+	});
+
+	afterEach(() => {
+		const db = require('../lib/db');
+		if (db.get.mockRestore) {
+			db.get.mockRestore();
+		}
+	});
+
+	test('should configure overwrites for contributor role and fork role on open scope', async () => {
+		const { createMeetingVoiceChannel } = require('../lib/meetingsHelper');
+		const { PermissionFlagsBits } = require('discord.js');
+		const meeting = {
+			id: 'meet_test_open',
+			title: 'Open Sync',
+			creator_id: 'creator_id',
+			scope: 'open',
+			attendees: []
+		};
+
+		const channel = await createMeetingVoiceChannel(mockGuild, meeting);
+		expect(channel).not.toBeNull();
+		expect(mockGuild.channels.create).toHaveBeenCalled();
+		
+		const createArgs = mockGuild.channels.create.mock.calls[0][0];
+		const overwrites = createArgs.permissionOverwrites;
+
+		// Should deny everyone ViewChannel
+		const everyoneOverwrite = overwrites.find(o => o.id === 'everyone_role_id');
+		expect(everyoneOverwrite).toBeDefined();
+		expect(everyoneOverwrite.deny).toContain(PermissionFlagsBits.ViewChannel);
+
+		// Should allow general contributor role
+		const contributorOverwrite = overwrites.find(o => o.id === 'contrib_role_123');
+		expect(contributorOverwrite).toBeDefined();
+		expect(contributorOverwrite.allow).toContain(PermissionFlagsBits.ViewChannel);
+
+		// Should allow creator's associated fork role
+		const forkOverwrite = overwrites.find(o => o.id === 'creator_fork_role_id');
+		expect(forkOverwrite).toBeDefined();
+		expect(forkOverwrite.allow).toContain(PermissionFlagsBits.ViewChannel);
+	});
+});

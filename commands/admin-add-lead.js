@@ -51,7 +51,7 @@ module.exports = {
 			}
 
 			// Resolve or create contributor role
-			let contributorRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'contributor');
+			let contributorRole = guild.roles.cache.get('1506019068132462804') || guild.roles.cache.find(r => r.name.toLowerCase() === 'contributor');
 			if (!contributorRole) {
 				try {
 					contributorRole = await guild.roles.create({

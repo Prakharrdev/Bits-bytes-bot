@@ -234,7 +234,7 @@ function startWebServer(client) {
                 }
 
                 if (targetMember) {
-                    hasContributorRole = targetMember.roles.cache.some(r => r.name.toLowerCase() === 'contributor');
+                    hasContributorRole = targetMember.roles.cache.some(r => r.name.toLowerCase() === 'contributor' || r.id === '1506019068132462804');
 
                     // Resolve Discord city role for contributor
                     try {
@@ -496,7 +496,7 @@ function startWebServer(client) {
             const guild = guildId ? client.guilds.cache.get(guildId) : client.guilds.cache.first();
             if (guild) {
                 const member = await guild.members.fetch(req.user.id).catch(() => null);
-                isContributor = member ? member.roles.cache.some(r => r.name.toLowerCase() === 'contributor') : false;
+                isContributor = member ? member.roles.cache.some(r => r.name.toLowerCase() === 'contributor' || r.id === '1506019068132462804') : false;
             }
 
             const { role, cityName } = await resolveMemberRoleAndCity(req.user.id, user ? user.associated_role_id : null);
@@ -1656,7 +1656,7 @@ async function runUserCleanup(client) {
         const allUsers = await db.all('SELECT discord_id, username FROM user_availability');
         for (const dbUser of allUsers) {
             const member = guild.members.cache.get(dbUser.discord_id);
-            const hasRole = member && member.roles.cache.some(r => r.name.toLowerCase() === 'contributor');
+            const hasRole = member && member.roles.cache.some(r => r.name.toLowerCase() === 'contributor' || r.id === '1506019068132462804');
             if (!hasRole) {
                 console.log(`[CLEANUP] Removing user ${dbUser.username} (${dbUser.discord_id}) because they lack the contributor role.`);
 
