@@ -48,14 +48,26 @@ async function getActiveCities() {
     }
 }
 
-// Timezone offset mapping
-const OFFSETS = {
-    'Asia/Kolkata': '+05:30',
-    'UTC': '+00:00',
-    'America/New_York': '-04:00',
-    'Europe/London': '+01:00',
-    'Asia/Singapore': '+08:00'
-};
+// Timezone offset helper (DST aware)
+function getTimezoneOffsetString(timeZone, date = new Date()) {
+    try {
+        const str = date.toLocaleString('en-US', { timeZone, timeZoneName: 'longOffset' });
+        // Match GMT+H:MM or GMT-H:MM or GMT+HH:MM or GMT-HH:MM
+        const match = str.match(/GMT([+-])(\d+):(\d+)/);
+        if (match) {
+            const sign = match[1];
+            const hours = match[2].padStart(2, '0');
+            const minutes = match[3].padStart(2, '0');
+            return `${sign}${hours}:${minutes}`;
+        }
+        if (str.includes('GMT') && !str.match(/GMT[+-]/)) {
+            return '+00:00';
+        }
+    } catch (e) {
+        console.error(`[TIMEZONE] Failed to calculate offset for ${timeZone}:`, e.message);
+    }
+    return '+05:30'; // Default fallback
+}
 
 function startWebServer(client) {
     const app = express();
@@ -628,6 +640,17 @@ function startWebServer(client) {
         }
     });
 
+    // Returns status of the multi-bot listener pool (total configured, busy, available)
+    app.get('/api/listeners/status', (req, res) => {
+        try {
+            const listenerManager = require('./lib/listenerManager');
+            res.json(listenerManager.getListenerStatus());
+        } catch (err) {
+            console.error('[API_LISTENERS_ERROR]', err);
+            res.status(500).json({ error: 'Failed to fetch listener status' });
+        }
+    });
+
     // Helper to pick the right Cal.com event type ID based on meeting duration
     function getCalcomEventTypeId(duration) {
         const d = parseInt(duration, 10);
@@ -643,14 +666,15 @@ function startWebServer(client) {
     // anyone books it, preventing two different people from having parallel
     // meetings at the same time. Per-person local DB avoids this.
     async function getHostFreeSlotsUTC(host, dateStr, duration, primaryTimeZone) {
-        const offset = OFFSETS[primaryTimeZone] || '+05:30';
+        const checkDate = new Date(`${dateStr}T12:00:00`);
+        const offset = getTimezoneOffsetString(primaryTimeZone, checkDate);
         const localStartISO = `${dateStr}T00:00:00${offset}`;
         const localEndISO = `${dateStr}T23:59:59${offset}`;
         const startUTC = new Date(localStartISO).toISOString();
         const endUTC = new Date(localEndISO).toISOString();
 
         // Local DB calculation
-        const hostOffset = OFFSETS[host.timezone] || '+05:30';
+        const hostOffset = getTimezoneOffsetString(host.timezone, checkDate);
         const weeklyHours = JSON.parse(host.weekly_hours || '{}');
         
         // We get the meetings for this host
@@ -890,7 +914,7 @@ function startWebServer(client) {
             // Calculate new times
             const primaryHost = await db.get('SELECT timezone FROM user_availability WHERE discord_id = ?', [meeting.creator_id]);
             const tz = primaryHost?.timezone || 'Asia/Kolkata';
-            const offset = OFFSETS[tz] || '+05:30';
+            const offset = getTimezoneOffsetString(tz, new Date(`${date}T12:00:00`));
             const newStartISO = `${date}T${time}:00${offset}`;
             const newStartMs = Date.parse(newStartISO);
             const duration = meeting.end_time ? (meeting.end_time - meeting.scheduled_time) : 30 * 60 * 1000;
@@ -1201,7 +1225,7 @@ function startWebServer(client) {
                 startTimeMs = Date.now();
                 endTimeMs = startTimeMs + selectedDuration * 60 * 1000;
             } else {
-                const offset = OFFSETS[primaryHost.timezone] || '+05:30';
+                const offset = getTimezoneOffsetString(primaryHost.timezone, new Date(`${date}T12:00:00`));
                 const slotStartISO = `${date}T${slot}:00${offset}`;
                 startTimeMs = Date.parse(slotStartISO);
                 
@@ -1226,6 +1250,12 @@ function startWebServer(client) {
                 if (addHost) {
                     allHosts.push(addHost);
                 }
+            }
+
+            // Self-booking prevention: Check if user is trying to book with themselves
+            const isSelfBooking = allHosts.some(host => host.discord_id === req.user.id);
+            if (isSelfBooking) {
+                return res.status(400).json({ error: 'Self-Booking Restriction: You cannot book a meeting with yourself as a host.' });
             }
 
             // Check if slot is still available for ALL hosts
@@ -1742,4 +1772,4 @@ async function runBookingHoldsCleanup() {
     }
 }
 
-module.exports = { startWebServer, runUserCleanup, runBookingHoldsCleanup, sessions };
+module.exports = { startWebServer, runUserCleanup, runBookingHoldsCleanup, sessions, getTimezoneOffsetString };

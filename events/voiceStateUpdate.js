@@ -14,7 +14,7 @@ module.exports = {
 					const { isRecording, getMeetingIdByChannel, handleUserJoin } = require('../lib/voiceRecorder');
 					const meetingId = getMeetingIdByChannel(newChannelId);
 					if (meetingId && !newState.member?.user?.bot) {
-						handleUserJoin(meetingId, newState.member);
+						await handleUserJoin(meetingId, newState.member);
 					}
 				}
 				
@@ -52,7 +52,7 @@ module.exports = {
 					const { isRecording, getMeetingIdByChannel, handleUserLeave } = require('../lib/voiceRecorder');
 					const meetingId = getMeetingIdByChannel(oldChannelId);
 					if (meetingId && !oldState.member?.user?.bot) {
-						handleUserLeave(meetingId, oldState.member);
+						await handleUserLeave(meetingId, oldState.member);
 					}
 				}
 			} catch (err) {

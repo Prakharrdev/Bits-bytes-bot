@@ -340,6 +340,10 @@
                         </svg>
                         <strong id="host-timezone">Asia/Kolkata</strong>
                     </div>
+                    <div class="timezone-badge" id="listener-status-badge" style="font-size: 0.8rem; width: fit-content; margin-top: 0.5rem; display: none;">
+                        <span id="listener-status-dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-right: 0.25rem;"></span>
+                        <strong id="listener-status-text">Recording Bots Available</strong>
+                    </div>
                 </div>
             </div>            <!-- Calendar & Slots Flow container -->
             <div class="calendar-slots-flow" id="calendar-slots-flow">
@@ -915,6 +919,12 @@
         document.getElementById('booking-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            // Self-booking prevention: Check if loggedInUser is one of the selected hosts
+            if (loggedInUser && selectedHosts.some(host => host.discord_id === (loggedInUser.discord_id || loggedInUser.id))) {
+                alert('Self-Booking Restriction: You cannot book a meeting with yourself as a host.');
+                return;
+            }
+            
             const name = document.getElementById('guest-name').value.trim();
             const email = document.getElementById('guest-email').value.trim();
             const additionalGuests = document.getElementById('additional-guests').value.trim();
@@ -1117,9 +1127,34 @@
         updateScopeUI(); // set initial state
         // ─────────────────────────────────────────────────────────────────────
 
+        async function fetchListenerStatus() {
+            try {
+                const res = await fetch('/api/listeners/status');
+                if (res.ok) {
+                    const status = await res.json();
+                    const badge = document.getElementById('listener-status-badge');
+                    const dot = document.getElementById('listener-status-dot');
+                    const text = document.getElementById('listener-status-text');
+                    if (badge && status && typeof status.available === 'number') {
+                        badge.style.display = 'flex';
+                        text.textContent = `${status.available}/${status.total} Recording Bots Available`;
+                        if (status.available > 0) {
+                            dot.style.background = '#10b981'; // Green
+                        } else {
+                            dot.style.background = '#f43f5e'; // Red
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to fetch listener status:', err);
+            }
+        }
+
         loadHostDetails();
         loadForks();
         checkUserSession();
+        fetchListenerStatus();
+        setInterval(fetchListenerStatus, 30000);
     </script>
 </body>
 </html>

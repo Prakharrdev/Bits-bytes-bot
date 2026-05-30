@@ -342,7 +342,7 @@ async function handleBookingCancelled(client, payload) {
 
 	// Delete temp VC if it exists
 	if (existingMeeting.temp_channel_id) {
-		const vc = guild.channels.cache.get(existingMeeting.temp_channel_id);
+		const vc = guild.channels.cache.get(existingMeeting.temp_channel_id) || await guild.channels.fetch(existingMeeting.temp_channel_id).catch(() => null);
 		if (vc) {
 			await vc.delete('Meeting cancelled on Cal.com').catch(() => {});
 		}

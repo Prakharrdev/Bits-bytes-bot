@@ -76,7 +76,7 @@ module.exports = {
 			// Start recording if voice meeting and recording is enabled
 			let vcChannel = null;
 			if (meeting.location_type === 'discord_vc' && meeting.temp_channel_id) {
-				vcChannel = interaction.guild.channels.cache.get(meeting.temp_channel_id);
+				vcChannel = interaction.guild.channels.cache.get(meeting.temp_channel_id) || await interaction.guild.channels.fetch(meeting.temp_channel_id).catch(() => null);
 				if (vcChannel && process.env.RECORDING_ENABLED === 'true') {
 					const { isRecording, startRecording } = require('../lib/voiceRecorder');
 					if (!isRecording(meeting.id)) {

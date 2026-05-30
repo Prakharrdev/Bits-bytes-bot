@@ -95,7 +95,7 @@ module.exports = (client) => {
 			for (const meeting of activeMeetings) {
 				// Attendance Check
 				if (meeting.location_type === 'discord_vc' && meeting.temp_channel_id) {
-					const vcChannel = guild.channels.cache.get(meeting.temp_channel_id);
+					const vcChannel = guild.channels.cache.get(meeting.temp_channel_id) || await guild.channels.fetch(meeting.temp_channel_id).catch(() => null);
 					
 					if (!vcChannel) {
 						// VC was deleted manually or crashed, mark complete

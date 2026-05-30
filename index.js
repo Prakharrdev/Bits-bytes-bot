@@ -103,6 +103,97 @@ client.once('ready', async () => {
 		} else {
 			logger.boot(`SYSTEM // PROTOCOL_ONLINE`, `**SYSTEM STATUS**\n${stats}`);
 		}
+
+		// Self-healing / Startup Resumption
+		try {
+			const guildId = process.env.GUILD_ID;
+			if (guildId && process.env.RECORDING_ENABLED === 'true') {
+				const guild = await client.guilds.fetch(guildId).catch(() => null);
+				if (guild) {
+					const config = require('./config');
+					const meetingsDb = require('./lib/meetingsDb');
+					const { startRecording } = require('./lib/voiceRecorder');
+					const { queueTranscription } = require('./lib/transcriptionPipeline');
+					
+					// 1. Scan DB for meetings in 'active' status
+					const activeMeetings = await meetingsDb.getActiveMeetings();
+					const baseDir = config.RECORDING?.tempDir || path.join(require('os').tmpdir(), 'bnb-recordings');
+					
+					for (const meeting of activeMeetings) {
+						if (meeting.location_type === 'discord_vc' && meeting.temp_channel_id) {
+							const vcChannel = await guild.channels.fetch(meeting.temp_channel_id).catch(() => null);
+							const humanMembers = vcChannel ? vcChannel.members.filter(m => !m.user.bot) : null;
+							
+							if (vcChannel && humanMembers && humanMembers.size > 0) {
+								// VC still has human members - spin up helper bot and rejoin to resume recording
+								console.log(`[BOOT] Resuming recording for active meeting "${meeting.title}" (${meeting.id}) in VC`);
+								await startRecording(vcChannel, meeting.id, client).catch(err => {
+									console.error(`[BOOT] Failed to resume recording for active meeting ${meeting.id}:`, err.message);
+								});
+							} else {
+								// VC is empty or deleted - conclusion of the meeting
+								console.log(`[BOOT] Meeting "${meeting.title}" VC is empty/deleted on startup. Processing remaining files.`);
+								
+								// Scan for saved metadata.json on disk to transcribe whatever was recorded
+								const meetingDir = path.join(baseDir, meeting.id);
+								const metadataPath = path.join(meetingDir, 'metadata.json');
+								if (fs.existsSync(metadataPath)) {
+									try {
+										const rawData = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+										const recordingData = {
+											...rawData,
+											speakers: new Map(Object.entries(rawData.speakers || {}))
+										};
+										console.log(`[BOOT] Reconstructed metadata.json for ${meeting.id}. Queueing transcription.`);
+										await queueTranscription(meeting, recordingData, client);
+									} catch (err) {
+										console.error(`[BOOT] Failed to process metadata.json for meeting ${meeting.id}:`, err.message);
+									}
+								}
+								
+								// Mark meeting as completed
+								await meetingsDb.updateMeetingStatus(meeting.id, 'completed').catch(() => {});
+							}
+						}
+					}
+					
+					// 2. Scan temp dir for any metadata.json files of non-active meetings that ended while offline
+					if (fs.existsSync(baseDir)) {
+						const dirs = fs.readdirSync(baseDir);
+						for (const meetingId of dirs) {
+							// Skip if it was already processed above
+							const isActive = activeMeetings.some(m => m.id === meetingId);
+							if (isActive) continue;
+
+							const meetingDir = path.join(baseDir, meetingId);
+							const metadataPath = path.join(meetingDir, 'metadata.json');
+							if (fs.existsSync(metadataPath)) {
+								console.log(`[BOOT] Processing offline ended meeting recording: ${meetingId}`);
+								try {
+									const rawData = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+									const recordingData = {
+										...rawData,
+										speakers: new Map(Object.entries(rawData.speakers || {}))
+									};
+									
+									const meeting = await meetingsDb.getMeeting(meetingId);
+									if (meeting) {
+										await queueTranscription(meeting, recordingData, client);
+									} else {
+										console.log(`[BOOT] Stale meeting ${meetingId} not found in DB. Purging files.`);
+										fs.rmSync(meetingDir, { recursive: true, force: true });
+									}
+								} catch (err) {
+									console.error(`[BOOT] Failed to process offline metadata.json for ${meetingId}:`, err.message);
+								}
+							}
+						}
+					}
+				}
+			}
+		} catch (bootRecoveryError) {
+			console.error('[BOOT] Error in startup self-healing / recovery:', bootRecoveryError.message);
+		}
 	} catch (error) {
 		logger.error('Failed to register slash commands', error);
 	}
@@ -164,8 +255,27 @@ client.login(process.env.DISCORD_TOKEN).catch(err => {
 });
 
 // Graceful shutdown
-const handleShutdown = () => {
-	logger.boot('Shutdown signal received. Closing database connections...', null, false);
+const handleShutdown = async () => {
+	logger.boot('Shutdown signal received. Starting graceful shutdown sequence...', null, false);
+	try {
+		// Stop any active recordings and save their metadata.json before exiting
+		const { getActiveRecordings, stopRecording } = require('./lib/voiceRecorder');
+		const active = getActiveRecordings();
+		if (active && active.size > 0) {
+			console.log(`[SHUTDOWN] Saving state for ${active.size} active recording(s)...`);
+			for (const meetingId of active.keys()) {
+				try {
+					await stopRecording(meetingId, { shutdown: true, silent: false });
+				} catch (err) {
+					console.error(`[SHUTDOWN] Failed to stop recording for ${meetingId}:`, err.message);
+				}
+			}
+		}
+	} catch (err) {
+		console.error('[SHUTDOWN] Error during graceful wrap-up:', err.message);
+	}
+
+	logger.boot('Closing database connections...', null, false);
 	try {
 		db.close();
 		logger.boot('Database connections closed successfully. Exiting.', null, false);
