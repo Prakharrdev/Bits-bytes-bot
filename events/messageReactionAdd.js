@@ -60,6 +60,16 @@ module.exports = {
 			let role;
 			if (roleName) {
 				role = reaction.message.guild.roles.cache.find(r => r.name === roleName);
+				if (!role) {
+					try {
+						role = await reaction.message.guild.roles.create({
+							name: roleName,
+							reason: `Automated creation of interest role for ${roleName}`
+						});
+					} catch (err) {
+						console.error(`[ROLES] Failed to create interest role "${roleName}":`, err.message);
+					}
+				}
 			} else if (matchedCity) {
 				role = reaction.message.guild.roles.cache.find(r => r.name.toLowerCase() === matchedCity.toLowerCase());
 				if (!role) {
