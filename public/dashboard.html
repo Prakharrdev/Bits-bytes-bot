@@ -465,16 +465,31 @@
             
             // Build availability JSON
             const weekly_hours = {};
+            let hasActiveDay = false;
             days.forEach(day => {
                 const checked = document.getElementById(`check-${day}`).checked;
                 if (checked) {
                     const start = document.getElementById(`start-${day}`).value;
                     const end = document.getElementById(`end-${day}`).value;
                     weekly_hours[day] = [{ start, end }];
+                    hasActiveDay = true;
                 } else {
                     weekly_hours[day] = [];
                 }
             });
+
+            if (!hasActiveDay) {
+                // Apply default schedule: Mon-Fri 09:00 to 17:00
+                weekdays.forEach(day => {
+                    const cb = document.getElementById(`check-${day}`);
+                    cb.checked = true;
+                    cb.dispatchEvent(new Event('change'));
+                    document.getElementById(`start-${day}`).value = '09:00';
+                    document.getElementById(`end-${day}`).value = '17:00';
+                    weekly_hours[day] = [{ start: '09:00', end: '17:00' }];
+                });
+                alert('Availability schedule is required! We have automatically applied a default Monday-Friday 9:00 AM - 5:00 PM schedule for you.');
+            }
             
             try {
                 const res = await fetch('/api/user/availability', {

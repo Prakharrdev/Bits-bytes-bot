@@ -818,11 +818,17 @@
                 
                 if (slots.error) {
                     slotsGrid.innerHTML = `<p style="color: var(--error); font-size: 0.9rem; grid-column: 1 / -1;">${slots.error}</p>`;
+                    setTimeout(() => {
+                        slotsSection.classList.add('visible');
+                    }, 10);
                     return;
                 }
                 
                 if (!slots || slots.length === 0) {
                     slotsGrid.innerHTML = '<p style="color: var(--error); font-size: 0.9rem; grid-column: 1 / -1;">No slots available on this date.</p>';
+                    setTimeout(() => {
+                        slotsSection.classList.add('visible');
+                    }, 10);
                     return;
                 }
                 
@@ -847,6 +853,9 @@
             } catch (err) {
                 console.error(err);
                 slotsGrid.innerHTML = '<p style="color: var(--error); font-size: 0.9rem;">Failed to fetch slots.</p>';
+                setTimeout(() => {
+                    slotsSection.classList.add('visible');
+                }, 10);
             }
         }
 

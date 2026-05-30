@@ -306,7 +306,7 @@ function startWebServer(client) {
                 if (!existingUser) {
                     await db.run(
                         `INSERT INTO user_availability (discord_id, username, email, timezone, weekly_hours, booking_link, title, description, associated_role_id, avatar)
-                         VALUES (?, ?, ?, 'Asia/Kolkata', '{"monday":[],"tuesday":[],"wednesday":[],"thursday":[],"friday":[],"saturday":[],"sunday":[]}', ?, ?, '', ?, ?)`,
+                         VALUES (?, ?, ?, 'Asia/Kolkata', '{"monday":[{"start":"09:00","end":"17:00"}],"tuesday":[{"start":"09:00","end":"17:00"}],"wednesday":[{"start":"09:00","end":"17:00"}],"thursday":[{"start":"09:00","end":"17:00"}],"friday":[{"start":"09:00","end":"17:00"}],"saturday":[],"sunday":[]}', ?, ?, '', ?, ?)`,
                         [userData.id, userData.username, userData.email || null, `link_${userData.username.toLowerCase().substring(0, 10)}`, defaultTitle, cityRoleId || null, userData.avatar || null]
                     );
                 } else {
@@ -562,6 +562,36 @@ function startWebServer(client) {
         }
 
         try {
+            // Check if weekly_hours is empty (no active day)
+            let parsedHours = {};
+            try {
+                parsedHours = JSON.parse(weekly_hours || '{}');
+            } catch (e) {
+                parsedHours = {};
+            }
+
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            let hasHours = false;
+            days.forEach(day => {
+                if (parsedHours[day] && parsedHours[day].length > 0) {
+                    hasHours = true;
+                }
+            });
+
+            let finalWeeklyHours = weekly_hours;
+            if (!hasHours) {
+                const defaultSchedule = {
+                    monday: [{ start: '09:00', end: '17:00' }],
+                    tuesday: [{ start: '09:00', end: '17:00' }],
+                    wednesday: [{ start: '09:00', end: '17:00' }],
+                    thursday: [{ start: '09:00', end: '17:00' }],
+                    friday: [{ start: '09:00', end: '17:00' }],
+                    saturday: [],
+                    sunday: []
+                };
+                finalWeeklyHours = JSON.stringify(defaultSchedule);
+            }
+
             // Check for uniqueness of link
             const otherUser = await db.get(
                 `SELECT discord_id FROM user_availability WHERE booking_link = ? AND discord_id != ?`,
@@ -575,7 +605,7 @@ function startWebServer(client) {
                 `UPDATE user_availability 
                  SET title = ?, booking_link = ?, description = ?, timezone = ?, weekly_hours = ?, calcom_event_type_id = ?
                  WHERE discord_id = ?`,
-                [title, booking_link, description, timezone || 'Asia/Kolkata', weekly_hours, calcom_event_type_id || null, req.user.id]
+                [title, booking_link, description, timezone || 'Asia/Kolkata', finalWeeklyHours, calcom_event_type_id || null, req.user.id]
             );
 
             // Sync email address to email preferences table too
