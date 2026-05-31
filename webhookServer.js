@@ -55,7 +55,9 @@ async function handleBookingCreated(client, payload) {
 	const startTime = Date.parse(payload.startTime);
 	const endTime = Date.parse(payload.endTime);
 	const location = payload.location || '';
-	const isDiscordVC = !location || location.toLowerCase().includes('discord');
+	const isDiscordVC = !location ||
+		location.toLowerCase().includes('discord') ||
+		location.toLowerCase().includes('cal.gobitsnbytes.org/m/');
 
 	// Check for existing meeting by Cal.com UID
 	const existing = await meetingsDb.findMeetingByCalcomId(uid);
@@ -151,6 +153,17 @@ async function handleBookingCreated(client, payload) {
 		}
 	}
 
+	if (createdMeeting && uid && locationType === 'discord_vc') {
+		try {
+			const calcom = require('./lib/calcom');
+			const locationUrl = `https://cal.gobitsnbytes.org/m/${createdMeeting.meet_code}`;
+			await calcom.updateBookingLocation(uid, locationUrl);
+			logger.info(`[WEBHOOK] Updated booking ${uid} location to ${locationUrl}`);
+		} catch (patchErr) {
+			logger.warn(`[WEBHOOK] Failed to patch booking location for booking ${uid}:`, patchErr.message);
+		}
+	}
+
 	// Format time in IST
 	const istTimeString = new Date(startTime).toLocaleString('en-US', {
 		timeZone: 'Asia/Kolkata',
@@ -214,7 +227,9 @@ async function handleBookingRescheduled(client, payload) {
 	const startTime = Date.parse(payload.startTime);
 	const endTime = Date.parse(payload.endTime);
 	const location = payload.location || '';
-	const isDiscordVC = !location || location.toLowerCase().includes('discord');
+	const isDiscordVC = !location ||
+		location.toLowerCase().includes('discord') ||
+		location.toLowerCase().includes('cal.gobitsnbytes.org/m/');
 	const locationType = isDiscordVC ? 'discord_vc' : 'external';
 	const locationDetails = isDiscordVC ? '' : location;
 
