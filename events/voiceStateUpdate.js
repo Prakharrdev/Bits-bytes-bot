@@ -1,6 +1,9 @@
 const { Events } = require('discord.js');
 const meetingsDb = require('../lib/meetingsDb');
 
+// Map of channelId -> timeoutInstance for empty VC cleanup
+const activeCleanupTimeouts = new Map();
+
 module.exports = {
 	name: Events.VoiceStateUpdate,
 	async execute(oldState, newState) {
@@ -10,6 +13,13 @@ module.exports = {
 		// ── User joined a voice channel ──
 		if (newChannelId && newChannelId !== oldChannelId) {
 			try {
+				// Cancel any pending cleanup timeout for this channel
+				if (activeCleanupTimeouts.has(newChannelId)) {
+					console.log(`[MEETING] User joined VC. Cancelling pending cleanup timeout for channel ${newChannelId}.`);
+					clearTimeout(activeCleanupTimeouts.get(newChannelId));
+					activeCleanupTimeouts.delete(newChannelId);
+				}
+
 				if (process.env.RECORDING_ENABLED === 'true') {
 					const { isRecording, getMeetingIdByChannel, handleUserJoin } = require('../lib/voiceRecorder');
 					const meetingId = getMeetingIdByChannel(newChannelId);
@@ -62,55 +72,77 @@ module.exports = {
 			// If the voice channel is now empty (no non-bot members)
 			const humanMembers = oldChannel.members.filter(m => !m.user.bot);
 			if (humanMembers.size === 0) {
-				try {
-					const meeting = await meetingsDb.findMeetingByTempChannel(oldChannelId);
+				// Cancel any existing timeout just in case
+				if (activeCleanupTimeouts.has(oldChannelId)) {
+					clearTimeout(activeCleanupTimeouts.get(oldChannelId));
+					activeCleanupTimeouts.delete(oldChannelId);
+				}
 
-					if (meeting) {
-						// Only end the meeting if it has actually commenced (status is active)
-						// AND we are past a 5-minute grace period from the scheduled start time.
-						// Otherwise, keep the VC open for attendees to join/rejoin.
-						if (meeting.status === 'active') {
-							const timeSinceStart = Date.now() - meeting.scheduled_time;
-							if (timeSinceStart < 5 * 60 * 1000) {
-								console.log(`[MEETING] Temporary VC ${oldChannel.name} (${oldChannelId}) is empty, but within 5-minute grace period. Keeping VC open.`);
-								return;
-							}
-						} else {
-							// If the meeting is still scheduled/pending, do not delete the channel when empty
-							console.log(`[MEETING] Temporary VC ${oldChannel.name} (${oldChannelId}) is empty, but meeting is still scheduled/pending. Keeping VC open.`);
+				const timeout = setTimeout(async () => {
+					activeCleanupTimeouts.delete(oldChannelId);
+					try {
+						// Re-fetch channel to verify empty status dynamically
+						const channel = oldState.guild.channels.cache.get(oldChannelId) || await oldState.guild.channels.fetch(oldChannelId).catch(() => null);
+						if (!channel) return; // Channel already deleted
+
+						const currentHumans = channel.members.filter(m => !m.user.bot);
+						if (currentHumans.size > 0) {
+							console.log(`[MEETING] VC "${channel.name}" (${oldChannelId}) is no longer empty. Skipping cleanup.`);
 							return;
 						}
 
-						console.log(`[MEETING] Temporary VC ${oldChannel.name} (${oldChannelId}) is now empty.`);
+						const meeting = await meetingsDb.findMeetingByTempChannel(oldChannelId);
 
-						// Stop recording and queue transcription BEFORE deleting the channel
-						if (process.env.RECORDING_ENABLED === 'true') {
-							try {
-								const { stopRecording } = require('../lib/voiceRecorder');
-								const { queueTranscription } = require('../lib/transcriptionPipeline');
-								const recordingData = await stopRecording(meeting.id);
-								if (recordingData) {
-									queueTranscription(meeting, recordingData, oldState.client).catch(err => {
-										console.error(`[MEETING] Transcription pipeline error for ${meeting.id}:`, err);
-									});
+						if (meeting) {
+							// Only end the meeting if it has actually commenced (status is active)
+							// AND we are past a 5-minute grace period from the scheduled start time.
+							// Otherwise, keep the VC open for attendees to join/rejoin.
+							if (meeting.status === 'active') {
+								const timeSinceStart = Date.now() - meeting.scheduled_time;
+								if (timeSinceStart < 5 * 60 * 1000) {
+									console.log(`[MEETING] Temporary VC ${channel.name} (${oldChannelId}) is empty, but within 5-minute grace period. Keeping VC open.`);
+									return;
 								}
-							} catch (recErr) {
-								console.error(`[MEETING] Error stopping recording for ${meeting.id}:`, recErr);
+							} else {
+								// If the meeting is still scheduled/pending, do not delete the channel when empty
+								console.log(`[MEETING] Temporary VC ${channel.name} (${oldChannelId}) is empty, but meeting is still scheduled/pending. Keeping VC open.`);
+								return;
 							}
+
+							console.log(`[MEETING] Temporary VC ${channel.name} (${oldChannelId}) has been empty for 2 minutes. Initiating cleanup...`);
+
+							// Stop recording and queue transcription BEFORE deleting the channel
+							if (process.env.RECORDING_ENABLED === 'true') {
+								try {
+									const { stopRecording } = require('../lib/voiceRecorder');
+									const { queueTranscription } = require('../lib/transcriptionPipeline');
+									const recordingData = await stopRecording(meeting.id);
+									if (recordingData) {
+										queueTranscription(meeting, recordingData, oldState.client).catch(err => {
+											console.error(`[MEETING] Transcription pipeline error for ${meeting.id}:`, err);
+										});
+									}
+								} catch (recErr) {
+									console.error(`[MEETING] Error stopping recording for ${meeting.id}:`, recErr);
+								}
+							}
+
+							// Delete the temp VC
+							await channel.delete('Temporary meeting VC has ended (empty for 2 minutes).').catch(err => {
+								console.error(`[MEETING ERROR] Failed to delete temporary VC:`, err.message);
+							});
+
+							// Mark meeting as completed
+							await meetingsDb.updateMeetingStatus(meeting.id, 'completed');
+							console.log(`[MEETING] Meeting "${meeting.title}" (${meeting.id}) marked as completed.`);
 						}
-
-						// Delete the temp VC
-						await oldChannel.delete('Temporary meeting VC has ended (all users left).').catch(err => {
-							console.error(`[MEETING ERROR] Failed to delete temporary VC:`, err.message);
-						});
-
-						// Mark meeting as completed
-						await meetingsDb.updateMeetingStatus(meeting.id, 'completed');
-						console.log(`[MEETING] Meeting "${meeting.title}" (${meeting.id}) marked as completed.`);
+					} catch (error) {
+						console.error('[MEETING ERROR] Error during debounced VC cleanup:', error);
 					}
-				} catch (error) {
-					console.error('[MEETING ERROR] Error checking temporary VC status:', error);
-				}
+				}, 2 * 60 * 1000); // 2-minute grace period
+
+				activeCleanupTimeouts.set(oldChannelId, timeout);
+				console.log(`[MEETING] Temporary VC ${oldChannel.name} (${oldChannelId}) is now empty. Cleanup scheduled in 2 minutes.`);
 			}
 		}
 	}
