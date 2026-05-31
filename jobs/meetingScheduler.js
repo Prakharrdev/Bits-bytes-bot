@@ -158,7 +158,7 @@ async function sendChannelReminder(guild, meeting, timeLabel, vcLink = '') {
 	const eventsChannel = await getEventsChannel(guild);
 	if (!eventsChannel) return;
 
-	const tags = meeting.attendees.map(a => a.type === 'user' ? `<@${a.discordId}>` : `<@&${a.discordId}>`).join(' ');
+	const tags = (meeting.attendees || []).map(a => a.type === 'user' ? `<@${a.discordId}>` : `<@&${a.discordId}>`).join(' ');
 
 	const embed = new EmbedBuilder()
 		.setTitle(`${config.EMOJIS.reminder} MEETING_REMINDER // ${timeLabel.toUpperCase()}_REMAINING`)
@@ -186,7 +186,7 @@ async function sendCommencementNotification(guild, meeting) {
 	const eventsChannel = await getEventsChannel(guild);
 	if (!eventsChannel) return;
 
-	const tags = meeting.attendees.map(a => a.type === 'user' ? `<@${a.discordId}>` : `<@&${a.discordId}>`).join(' ');
+	const tags = (meeting.attendees || []).map(a => a.type === 'user' ? `<@${a.discordId}>` : `<@&${a.discordId}>`).join(' ');
 
 	const embed = new EmbedBuilder()
 		.setTitle(`⚛️ MEETING_COMMENCEMENT // LIVE`)
