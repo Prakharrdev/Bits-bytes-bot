@@ -759,6 +759,8 @@ bits-bytes-bot/
 
 | Date | Bug | Fix |
 |------|-----|-----|
+| 2026-05-31 | Voice/VC Joining & Recording Failures | Added a 2-minute empty channel debounce grace period to prevent instant meeting cleanup/deletion. Added automatic reconnection recovery for voice bots when humans join/remain in the VC (maintaining the 2-human threshold requirement). |
+| 2026-05-31 | VC & meeting start crashes | Fixed a crash in meeting start/auto-commence notifications by making `findMeetingByTempChannel` populate `meeting.attendees` and `meeting.externalEmails` correctly (mirroring `getMeeting` behavior). Added robust defensive checks to `resolveAttendeeUserIds` and tagging routines to completely prevent undefined map exceptions. |
 | 2026-05-30 | Role Reaction Mismatch | Reverted mapping of `💻` to `dev` in `lib/roles.js` to keep the public `dev` interest role separate from the official team track `tech` role, and updated `events/messageReactionAdd.js` to automatically create interest roles (like `dev`) in the guild if they are missing. |
 | 2026-05-27 | Scoping Flaw & Category Hardening | Restricted "Open" scoped meeting VCs to the general contributor role, resolved meetings category by ID (1490416248000090122) first, and tightened the category's default permission overrides to prevent leaks to @everyone |
 | 2026-05-26 | Speaker Attribution Bug & Consent Notices | Implemented deterministic voice activity timeline tracking (start/end events) per user, coalesced adjacent segments, and updated the Gemini prompt to use the timeline as the source of truth for speaker labeling. Also updated written written channel consent notices and shortened TTS scripts. |
@@ -775,4 +777,4 @@ bits-bytes-bot/
 
 ---
 
-*Last Updated: May 30, 2026*
+*Last Updated: May 31, 2026*
