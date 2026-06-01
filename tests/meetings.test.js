@@ -428,3 +428,24 @@ describe('meetingsHelper.createMeetingVoiceChannel Permissions', () => {
 		expect(forkOverwrite).toBeUndefined();
 	});
 });
+
+describe('meetingsDb.removeAttendee', () => {
+	test('should remove attendee from database successfully', async () => {
+		const meetingId = 'meet_remove_att_test';
+		await meetingsDb.createMeeting({
+			id: meetingId,
+			title: 'Removal Test Meeting',
+			scheduledTime: Date.now() + 60000,
+			locationType: 'discord_vc',
+			creatorId: 'creator_id'
+		});
+
+		await meetingsDb.addAttendee(meetingId, 'user', 'user_to_remove');
+		let meeting = await meetingsDb.getMeeting(meetingId);
+		expect(meeting.attendees.map(a => a.discordId)).toContain('user_to_remove');
+
+		await meetingsDb.removeAttendee(meetingId, 'user_to_remove');
+		meeting = await meetingsDb.getMeeting(meetingId);
+		expect(meeting.attendees.map(a => a.discordId)).not.toContain('user_to_remove');
+	});
+});

@@ -20,29 +20,36 @@ module.exports = {
 					activeCleanupTimeouts.delete(newChannelId);
 				}
 
-				if (process.env.RECORDING_ENABLED === 'true') {
-					const { isRecording, getMeetingIdByChannel, handleUserJoin } = require('../lib/voiceRecorder');
-					const meetingId = getMeetingIdByChannel(newChannelId);
-					if (meetingId && !newState.member?.user?.bot) {
-						await handleUserJoin(meetingId, newState.member);
-					}
-				}
-				
-				// Handle auto-commencement when 2+ humans are present
 				const meeting = await meetingsDb.findMeetingByTempChannel(newChannelId);
-				if (meeting && (meeting.status === 'scheduled' || meeting.status === 'pending')) {
-					const newChannel = newState.channel;
-					if (newChannel) {
-						const humanMembers = newChannel.members.filter(m => !m.user.bot);
-						if (humanMembers.size >= 2) {
-							// Transition status to active
-							await meetingsDb.updateMeetingStatus(meeting.id, 'active');
-							meeting.status = 'active';
+				if (meeting) {
+					// 1. Handle auto-commencement when 2+ humans are present
+					if (meeting.status === 'scheduled' || meeting.status === 'pending') {
+						const newChannel = newState.channel;
+						if (newChannel) {
+							const humanMembers = newChannel.members.filter(m => !m.user.bot);
+							if (humanMembers.size >= 2) {
+								// Transition status to active
+								await meetingsDb.updateMeetingStatus(meeting.id, 'active');
+								meeting.status = 'active';
 
-							// Send commencement notification
-							const { sendCommencementNotification } = require('../lib/meetingsHelper');
-							await sendCommencementNotification(newState.guild, meeting);
-							console.log(`[MEETING] Meeting "${meeting.title}" (${meeting.id}) auto-commenced because 2+ human users joined the VC.`);
+								// Send commencement notification
+								const { sendCommencementNotification } = require('../lib/meetingsHelper');
+								await sendCommencementNotification(newState.guild, meeting);
+								console.log(`[MEETING] Meeting "${meeting.title}" (${meeting.id}) auto-commenced because 2+ human users joined the VC.`);
+							}
+						}
+					}
+
+					// 2. Start / Resume recording on-demand if meeting is active
+					if (meeting.status === 'active' && process.env.RECORDING_ENABLED === 'true') {
+						const { isRecording, startRecording, handleUserJoin } = require('../lib/voiceRecorder');
+						if (!isRecording(meeting.id)) {
+							console.log(`[MEETING] Starting recording on-demand for active meeting "${meeting.title}" (${meeting.id}) because human joined.`);
+							await startRecording(newState.channel, meeting.id, newState.client).catch(err => {
+								console.error(`[MEETING] Failed to start recording on-demand:`, err.message);
+							});
+						} else if (!newState.member?.user?.bot) {
+							await handleUserJoin(meeting.id, newState.member);
 						}
 					}
 				}

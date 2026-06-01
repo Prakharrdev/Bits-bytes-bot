@@ -937,8 +937,8 @@ function startWebServer(client) {
                 return res.status(403).json({ error: 'You are not authorized to reschedule this meeting.' });
             }
 
-            if (!['scheduled', 'pending'].includes(meeting.status)) {
-                return res.status(400).json({ error: 'Only scheduled or pending meetings can be rescheduled.' });
+            if (!['scheduled', 'pending', 'active'].includes(meeting.status)) {
+                return res.status(400).json({ error: 'Only scheduled, pending, or active meetings can be rescheduled.' });
             }
 
             // Calculate new times
@@ -955,9 +955,24 @@ function startWebServer(client) {
             }
 
             const oldStartMs = meeting.scheduled_time;
+            const wasActive = meeting.status === 'active';
 
             // Perform the reschedule
             const updatedMeeting = await meetingsDb.rescheduleMeeting(meeting.id, newStartMs, newEndMs, reason, req.user.id);
+
+            if (wasActive) {
+                // Change status back to scheduled
+                await meetingsDb.updateMeetingStatus(meeting.id, 'scheduled');
+                updatedMeeting.status = 'scheduled';
+
+                // Stop recording and release listener bot
+                try {
+                    const { stopRecording } = require('./lib/voiceRecorder');
+                    await stopRecording(meeting.id, { silent: false });
+                } catch (err) {
+                    console.error('[RESCHEDULE] Failed to stop recording for active meeting:', err.message);
+                }
+            }
 
             // Notify all attendees
             const guild = client.guilds.cache.first();
@@ -995,6 +1010,280 @@ function startWebServer(client) {
                 return res.status(400).json({ error: err.message });
             }
             res.status(500).json({ error: 'Failed to reschedule meeting.' });
+        }
+    });
+
+    // API: Cancel a meeting
+    app.post('/api/meeting/:meetCode/cancel', checkAuth, async (req, res) => {
+        try {
+            const { meetCode } = req.params;
+            const meeting = await meetingsDb.getMeetingByCode(meetCode);
+            if (!meeting) {
+                return res.status(404).json({ error: 'Meeting not found.' });
+            }
+
+            // Permission check: creator or booker
+            const canCancel = (req.user.id === meeting.creator_id) || (req.user.id === meeting.booked_by);
+            if (!canCancel) {
+                return res.status(403).json({ error: 'You are not authorized to cancel this meeting.' });
+            }
+
+            if (['completed', 'cancelled'].includes(meeting.status)) {
+                return res.status(400).json({ error: 'Meeting has already been completed or cancelled.' });
+            }
+
+            const wasActive = meeting.status === 'active';
+
+            // Update status to completed (aligning with Cal.com cancellation behavior)
+            await meetingsDb.updateMeetingStatus(meeting.id, 'completed');
+            meeting.status = 'completed';
+
+            // If it was active, stop recording
+            if (wasActive) {
+                try {
+                    const { stopRecording } = require('./lib/voiceRecorder');
+                    await stopRecording(meeting.id, { silent: false });
+                } catch (err) {
+                    console.error('[CANCEL] Failed to stop recording:', err.message);
+                }
+            }
+
+            // Delete temporary VC if it exists
+            if (meeting.temp_channel_id) {
+                const guildId = process.env.GUILD_ID;
+                const guild = guildId ? client.guilds.cache.get(guildId) : client.guilds.cache.first();
+                if (guild) {
+                    const vc = guild.channels.cache.get(meeting.temp_channel_id) || await guild.channels.fetch(meeting.temp_channel_id).catch(() => null);
+                    if (vc) {
+                        await vc.delete('Meeting cancelled by host').catch(() => {});
+                    }
+                }
+            }
+
+            // Send cancellation emails
+            const guild = client.guilds.cache.first();
+            if (guild) {
+                meetingsHelper.sendMeetingEmails(guild, meeting, 'cancel').catch(e => console.error('[CANCEL_EMAIL_ERROR]', e));
+            }
+
+            res.json({ success: true });
+        } catch (err) {
+            console.error('[CANCEL_ERROR]', err);
+            res.status(500).json({ error: 'Failed to cancel meeting.' });
+        }
+    });
+
+    // API: Add guest to a meeting
+    app.post('/api/meeting/:meetCode/guests/add', checkAuth, async (req, res) => {
+        try {
+            const { meetCode } = req.params;
+            const { guest } = req.body; // Can be email, Discord ID, or username
+
+            if (!guest || !guest.trim()) {
+                return res.status(400).json({ error: 'Guest identifier is required.' });
+            }
+
+            const cleanGuest = guest.trim();
+
+            const meeting = await meetingsDb.getMeetingByCode(meetCode);
+            if (!meeting) {
+                return res.status(404).json({ error: 'Meeting not found.' });
+            }
+
+            // Permission check: creator or booker
+            const canEdit = (req.user.id === meeting.creator_id) || (req.user.id === meeting.booked_by);
+            if (!canEdit) {
+                return res.status(403).json({ error: 'You are not authorized to modify this meeting.' });
+            }
+
+            if (['completed', 'cancelled'].includes(meeting.status)) {
+                return res.status(400).json({ error: 'Cannot add guests to a completed or cancelled meeting.' });
+            }
+
+            const guildId = process.env.GUILD_ID;
+            const guild = guildId ? client.guilds.cache.get(guildId) : client.guilds.cache.first();
+
+            let targetDiscordId = null;
+            let targetEmail = null;
+
+            // 1. Resolve guest type
+            if (cleanGuest.includes('@')) {
+                // Email address
+                targetEmail = cleanGuest.toLowerCase();
+                // Check if email matches a registered Discord user
+                const emailMap = await meetingsDb.findUsersByEmails([targetEmail]).catch(() => ({}));
+                if (emailMap[targetEmail]) {
+                    targetDiscordId = emailMap[targetEmail];
+                }
+            } else if (/^\d+$/.test(cleanGuest)) {
+                // Numeric Discord ID
+                targetDiscordId = cleanGuest;
+            } else {
+                // Assume Discord username / display name
+                if (guild) {
+                    await guild.members.fetch().catch(() => {});
+                    const member = guild.members.cache.find(m => 
+                        m.user.username.toLowerCase() === cleanGuest.toLowerCase() ||
+                        m.displayName.toLowerCase() === cleanGuest.toLowerCase() ||
+                        (m.user.tag && m.user.tag.toLowerCase() === cleanGuest.toLowerCase())
+                    );
+                    if (member) {
+                        targetDiscordId = member.id;
+                    } else {
+                        return res.status(400).json({ error: `Could not find Discord user "${cleanGuest}" in the server.` });
+                    }
+                } else {
+                    return res.status(400).json({ error: 'Discord server lookup not available.' });
+                }
+            }
+
+            // 2. Perform insertion
+            if (targetDiscordId) {
+                // Add Discord attendee
+                await meetingsDb.addAttendee(meeting.id, 'user', targetDiscordId);
+
+                // Check if they are already in the database email preferences, else fetch / sync email
+                if (guild) {
+                    const member = await guild.members.fetch(targetDiscordId).catch(() => null);
+                    if (member && member.user.email) {
+                        await meetingsDb.setUserEmail(targetDiscordId, member.user.email).catch(() => {});
+                    }
+                }
+
+                // If meeting has temp VC channel, edit permissions to allow target user
+                if (guild && meeting.temp_channel_id) {
+                    const vcChannel = guild.channels.cache.get(meeting.temp_channel_id) || await guild.channels.fetch(meeting.temp_channel_id).catch(() => null);
+                    if (vcChannel && vcChannel.permissionOverwrites) {
+                        const { PermissionFlagsBits } = require('discord.js');
+                        await vcChannel.permissionOverwrites.edit(targetDiscordId, {
+                            ViewChannel: true,
+                            Connect: true,
+                            Speak: true
+                        }).catch(err => console.error('[GUESTS] VC permission edit failed:', err.message));
+                    }
+                }
+            } else if (targetEmail) {
+                // Add to external_emails column
+                const currentEmails = meeting.externalEmails || [];
+                if (!currentEmails.includes(targetEmail)) {
+                    currentEmails.push(targetEmail);
+                    await db.run(
+                        `UPDATE meetings SET external_emails = ? WHERE id = ?`,
+                        [JSON.stringify(currentEmails), meeting.id]
+                    );
+                }
+            }
+
+            // Send emails to the new guest (invitation)
+            if (guild) {
+                // Refetch meeting to get updated guests
+                const updatedMeeting = await meetingsDb.getMeeting(meeting.id);
+                const formattedTime = new Date(meeting.scheduled_time).toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour12: true, hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short', year: 'numeric' }) + ' IST';
+                const mailer = require('./lib/mailer');
+                let vcLink = '';
+                if (meeting.meet_code) {
+                    vcLink = `https://cal.gobitsnbytes.org/m/${meeting.meet_code}`;
+                } else if (meeting.temp_channel_id) {
+                    vcLink = `https://discord.com/channels/${guild.id}/${meeting.temp_channel_id}`;
+                }
+                
+                if (targetEmail) {
+                    await mailer.sendMeetingInvite([targetEmail], updatedMeeting, formattedTime, vcLink, guild.id).catch(e => console.error('[GUEST_EMAIL_ERROR]', e));
+                } else if (targetDiscordId) {
+                    const userEmailMap = await meetingsDb.getUserEmails([targetDiscordId]);
+                    if (userEmailMap[targetDiscordId]) {
+                        await mailer.sendMeetingInvite([userEmailMap[targetDiscordId]], updatedMeeting, formattedTime, vcLink, guild.id).catch(e => console.error('[GUEST_EMAIL_ERROR]', e));
+                    }
+                }
+            }
+
+            res.json({ success: true });
+        } catch (err) {
+            console.error('[ADD_GUEST_ERROR]', err);
+            res.status(500).json({ error: 'Failed to add guest.' });
+        }
+    });
+
+    // API: Remove guest from a meeting
+    app.post('/api/meeting/:meetCode/guests/remove', checkAuth, async (req, res) => {
+        try {
+            const { meetCode } = req.params;
+            const { discordId, email } = req.body;
+
+            if (!discordId && !email) {
+                return res.status(400).json({ error: 'Either Discord ID or Email is required.' });
+            }
+
+            const meeting = await meetingsDb.getMeetingByCode(meetCode);
+            if (!meeting) {
+                return res.status(404).json({ error: 'Meeting not found.' });
+            }
+
+            // Permission check: creator or booker
+            const canEdit = (req.user.id === meeting.creator_id) || (req.user.id === meeting.booked_by);
+            if (!canEdit) {
+                return res.status(403).json({ error: 'You are not authorized to modify this meeting.' });
+            }
+
+            if (['completed', 'cancelled'].includes(meeting.status)) {
+                return res.status(400).json({ error: 'Cannot remove guests from a completed or cancelled meeting.' });
+            }
+
+            // Calculate total participants to verify the logical condition:
+            // "remove guests only if there are atleast 2 people to be seen in the call (logical)"
+            const uniqueParticipants = new Set();
+            uniqueParticipants.add(meeting.creator_id);
+            for (const att of meeting.attendees) {
+                if (att.type === 'user') {
+                    uniqueParticipants.add(att.discordId);
+                }
+            }
+            const totalCount = uniqueParticipants.size + (meeting.externalEmails || []).length;
+
+            if (totalCount <= 2) {
+                return res.status(400).json({ error: 'Cannot remove guest: A meeting must have at least 2 participants (including the host).' });
+            }
+
+            const guildId = process.env.GUILD_ID;
+            const guild = guildId ? client.guilds.cache.get(guildId) : client.guilds.cache.first();
+
+            if (discordId) {
+                // Prevent removing the creator/host
+                if (discordId === meeting.creator_id) {
+                    return res.status(400).json({ error: 'Cannot remove the meeting host.' });
+                }
+
+                // Remove from DB
+                await db.run(
+                    `DELETE FROM meeting_attendees WHERE meeting_id = ? AND discord_id = ?`,
+                    [meeting.id, discordId]
+                );
+
+                // If meeting has temp VC channel, remove permissions
+                if (guild && meeting.temp_channel_id) {
+                    const vcChannel = guild.channels.cache.get(meeting.temp_channel_id) || await guild.channels.fetch(meeting.temp_channel_id).catch(() => null);
+                    if (vcChannel && vcChannel.permissionOverwrites) {
+                        const overwrite = vcChannel.permissionOverwrites.cache.get(discordId);
+                        if (overwrite) {
+                            await overwrite.delete('Guest removed from meeting').catch(err => console.error('[GUESTS] VC permission deletion failed:', err.message));
+                        }
+                    }
+                }
+            } else if (email) {
+                const cleanEmail = email.trim().toLowerCase();
+                const currentEmails = meeting.externalEmails || [];
+                const updatedEmails = currentEmails.filter(e => e !== cleanEmail);
+                
+                await db.run(
+                    `UPDATE meetings SET external_emails = ? WHERE id = ?`,
+                    [JSON.stringify(updatedEmails), meeting.id]
+                );
+            }
+
+            res.json({ success: true });
+        } catch (err) {
+            console.error('[REMOVE_GUEST_ERROR]', err);
+            res.status(500).json({ error: 'Failed to remove guest.' });
         }
     });
 
